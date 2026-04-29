@@ -2,13 +2,21 @@
  * screens/ControlScreen.tsx
  * Seçili ESP32 cihazını kontrol eden ana ekran.
  *
- * Header'da:
- *   - Sol: cihaz adına basınca DeviceListScreen açılır
- *   - Sağ: "+" butonu ile ScanScreen'e gidip yeni cihaz eklenir
+ * Özellikler:
+ *   - Işık aç/kapat (toggle)
+ *   - Parlaklık slider'ı — sadece ışık açıkken görünür
+ *   - Slider sürüklenirken debounce ile ESP32'ye gönderir (300ms)
+ *   - Slider bırakılınca brightness AsyncStorage'a kaydedilir
+ *   - Header sol: cihaz adı → DeviceListScreen
+ *   - Header sağ: "+" → ScanScreen (yeni cihaz ekle)
  *
- * Tüm animasyonlar useNativeDriver:false — layout prop karışıklığını önler.
+ * Animasyon notu:
+ *   Tüm Animated.timing çağrıları useNativeDriver:false kullanır.
+ *   Bu sayede backgroundColor, borderColor, width gibi layout
+ *   prop'ları ile transform (scale) aynı value üzerinden çalışabilir.
  */
 
+import Slider from '@react-native-community/slider';
 import { useEffect, useRef, useState } from 'react';
 import {
   Animated,
@@ -18,33 +26,44 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { saveBrightness } from '../services/deviceStorage';
 import { Colors, Fonts, Radius, Spacing } from '../theme/colors';
 import { Device } from '../types/Device';
 
 type Props = {
-  device:       Device;          // Aktif cihaz
-  onOpenList:   () => void;      // Cihaz adına basınca → DeviceListScreen
-  onAddDevice:  () => void;      // "+" butonuna basınca → ScanScreen
+  device:      Device;
+  onOpenList:  () => void; // Cihaz adına basınca → DeviceListScreen
+  onAddDevice: () => void; // "+" butonuna basınca → ScanScreen
 };
 
 export default function ControlScreen({ device, onOpenList, onAddDevice }: Props) {
-  const [isOn, setIsOn] = useState(false);
+  const [isOn, setIsOn]           = useState(false);
 
-  // Tek animasyon value — tümü useNativeDriver:false
+  // Slider değeri 0-100 arası (kullanıcıya gösterilen %)
+  // ESP32'ye gönderilirken 0-255'e dönüştürülür
+  const [brightness, setBrightness] = useState(
+    Math.round((device.brightness ?? 255) / 255 * 100)
+  );
+
+  // Debounce için: slider hareket ederken bu ref'i kullanırız
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Animasyon value'ları — hepsi useNativeDriver:false
   const anim     = useRef(new Animated.Value(0)).current;
   const pulse    = useRef(new Animated.Value(1)).current;
   const pulseRef = useRef<Animated.CompositeAnimation | null>(null);
 
-  // Cihaz değişince ışığı kapat ve animasyonu sıfırla
+  // Cihaz değişince ışığı kapat, brightness'ı cihazın kayıtlı değerine al
   useEffect(() => {
     setIsOn(false);
+    setBrightness(Math.round((device.brightness ?? 255) / 255 * 100));
     anim.setValue(0);
     pulse.setValue(1);
     pulseRef.current?.stop();
   }, [device.id]);
 
+  // Işık aç/kapat animasyonu + pulse loop
   useEffect(() => {
-    // Işık geçiş animasyonu
     Animated.timing(anim, {
       toValue: isOn ? 1 : 0,
       duration: 500,
@@ -52,19 +71,16 @@ export default function ControlScreen({ device, onOpenList, onAddDevice }: Props
       useNativeDriver: false,
     }).start();
 
-    // Işık açıkken nefes alma animasyonu
     if (isOn) {
       pulseRef.current = Animated.loop(
         Animated.sequence([
           Animated.timing(pulse, {
-            toValue: 1.06,
-            duration: 2200,
+            toValue: 1.06, duration: 2200,
             easing: Easing.inOut(Easing.sin),
             useNativeDriver: false,
           }),
           Animated.timing(pulse, {
-            toValue: 0.97,
-            duration: 2200,
+            toValue: 0.97, duration: 2200,
             easing: Easing.inOut(Easing.sin),
             useNativeDriver: false,
           }),
@@ -74,8 +90,7 @@ export default function ControlScreen({ device, onOpenList, onAddDevice }: Props
     } else {
       pulseRef.current?.stop();
       Animated.timing(pulse, {
-        toValue: 1,
-        duration: 300,
+        toValue: 1, duration: 300,
         useNativeDriver: false,
       }).start();
     }
@@ -83,7 +98,8 @@ export default function ControlScreen({ device, onOpenList, onAddDevice }: Props
     return () => { pulseRef.current?.stop(); };
   }, [isOn]);
 
-  // ESP32'ye istek gönder
+  // ── ESP32 iletişim fonksiyonları ──────────────────────────────────────────
+
   const toggle = async () => {
     const path = isOn ? '/led/off' : '/led/on';
     try {
@@ -94,7 +110,42 @@ export default function ControlScreen({ device, onOpenList, onAddDevice }: Props
     }
   };
 
-  // ── Interpolasyonlar ─────────────────────────────────────────────
+  // Slider sürüklenirken — debounce ile ESP32'ye gönder (her px'de istek atmaz)
+  const handleSliderChange = (value: number) => {
+    const pct = Math.round(value); // 0-100
+    setBrightness(pct);
+
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+
+    debounceRef.current = setTimeout(async () => {
+      const esp32Value = Math.round(pct / 100 * 255); // 0-255'e çevir
+      try {
+        await fetch(`http://${device.ip}/led/brightness?value=${esp32Value}`);
+      } catch {
+        console.log('Brightness gönderme hatası:', device.ip);
+      }
+    }, 300); // 300ms debounce — slider bırakılmadan önce istek atmaz
+  };
+
+  // Slider bırakılınca brightness'ı AsyncStorage'a kaydet
+  const handleSliderComplete = async (value: number) => {
+    const pct        = Math.round(value);
+    const esp32Value = Math.round(pct / 100 * 255);
+
+    // Debounce'u iptal et — bırakma anında direkt gönder
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+
+    try {
+      await fetch(`http://${device.ip}/led/brightness?value=${esp32Value}`);
+    } catch {
+      console.log('Brightness gönderme hatası:', device.ip);
+    }
+
+    // Kalıcı kayıt
+    await saveBrightness(device.id, esp32Value);
+  };
+
+  // ── Interpolasyonlar ──────────────────────────────────────────────────────
   const glowOpacity   = anim.interpolate({ inputRange: [0, 1], outputRange: [0, 1] });
   const bgColor       = anim.interpolate({ inputRange: [0, 1], outputRange: [Colors.bg, '#060a0f'] });
   const borderColor   = anim.interpolate({ inputRange: [0, 1], outputRange: [Colors.border, Colors.cyan2] });
@@ -117,20 +168,25 @@ export default function ControlScreen({ device, onOpenList, onAddDevice }: Props
     inputRange: [0.6, 1], outputRange: [0, 1], extrapolate: 'clamp',
   });
 
+  // Slider alanının opacity'si — sadece ışık açıkken tam görünür
+  const sliderOpacity = anim.interpolate({
+    inputRange: [0, 1], outputRange: [0.3, 1],
+  });
+
   return (
     <Animated.View style={[styles.root, { backgroundColor: bgColor }]}>
 
-      {/* Dekoratif arka plan scanline'ları */}
+      {/* Dekoratif scanline arka plan */}
       <View style={styles.scanlines} pointerEvents="none">
         {Array.from({ length: 18 }).map((_, i) => (
           <View key={i} style={styles.scanline} />
         ))}
       </View>
 
-      {/* ── Header ─────────────────────────────────────────────── */}
+      {/* ── Header ────────────────────────────────────────────────── */}
       <View style={styles.header}>
 
-        {/* Sol: cihaz adı — basınca cihaz listesi açılır */}
+        {/* Sol: cihaz adı — basınca DeviceListScreen açılır */}
         <TouchableOpacity onPress={onOpenList} style={styles.deviceNameBtn}>
           <Text style={styles.deviceNameLabel}>AKTİF CİHAZ</Text>
           <Text style={styles.deviceName} numberOfLines={1}>
@@ -138,10 +194,9 @@ export default function ControlScreen({ device, onOpenList, onAddDevice }: Props
           </Text>
         </TouchableOpacity>
 
-        {/* Sağ: durum noktası + yeni cihaz ekle */}
+        {/* Sağ: durum noktası + yeni cihaz ekle butonu */}
         <View style={styles.headerRight}>
           <Animated.View style={[styles.statusDot, { backgroundColor: dotColor }]} />
-          {/* "+" butonu — ScanScreen'e gider */}
           <TouchableOpacity onPress={onAddDevice} style={styles.addBtn}>
             <Text style={styles.addBtnText}>+</Text>
           </TouchableOpacity>
@@ -157,7 +212,7 @@ export default function ControlScreen({ device, onOpenList, onAddDevice }: Props
         <Text style={styles.ipValue}>{device.ip}</Text>
       </View>
 
-      {/* ── Lamba alanı ──────────────────────────────────────── */}
+      {/* ── Lamba alanı ───────────────────────────────────────────── */}
       <View style={styles.lampSection}>
 
         {/* Zemine yansıyan glow */}
@@ -168,14 +223,12 @@ export default function ControlScreen({ device, onOpenList, onAddDevice }: Props
           borderColor,
           transform: [{ scale: pulse }],
         }]}>
-
           {/* Orta halka */}
           <Animated.View style={[styles.ringMiddle, {
             borderColor,
             backgroundColor: ringBg,
           }]}>
-
-            {/* Ampul dokunmatik butonu */}
+            {/* Ampul dokunmatik alanı */}
             <TouchableOpacity onPress={toggle} activeOpacity={0.75}>
               <Animated.View style={[styles.bulbButton, {
                 borderColor,
@@ -183,7 +236,6 @@ export default function ControlScreen({ device, onOpenList, onAddDevice }: Props
                 shadowOpacity,
                 shadowRadius,
               }]}>
-
                 {/* Ampul ikonu */}
                 <View style={styles.bulbIconWrapper}>
                   <Animated.View style={[styles.bulbGlass, {
@@ -196,7 +248,7 @@ export default function ControlScreen({ device, onOpenList, onAddDevice }: Props
                   <Animated.View style={[styles.bulbNeck, { backgroundColor: neckColor }]} />
                 </View>
 
-                {/* Işık ışınları — açıkken görünür */}
+                {/* Işık ışınları — sadece açıkken */}
                 {[0, 45, 90, 135, 180, 225, 270, 315].map((angle) => (
                   <Animated.View
                     key={angle}
@@ -210,7 +262,6 @@ export default function ControlScreen({ device, onOpenList, onAddDevice }: Props
 
               </Animated.View>
             </TouchableOpacity>
-
           </Animated.View>
         </Animated.View>
 
@@ -231,7 +282,40 @@ export default function ControlScreen({ device, onOpenList, onAddDevice }: Props
 
       </View>
 
-      {/* ── Toggle butonu ─────────────────────────────────────── */}
+      {/* ── Brightness slider ──────────────────────────────────────── */}
+      <Animated.View style={[styles.sliderSection, { opacity: sliderOpacity }]}>
+
+        {/* Başlık + yüzde değeri */}
+        <View style={styles.sliderHeader}>
+          <Text style={styles.sliderLabel}>PARLAKLIK</Text>
+          <Text style={styles.sliderValue}>{brightness}%</Text>
+        </View>
+
+        {/* Slider — ışık kapalıyken soluk görünür ama yine kullanılabilir */}
+        <Slider
+          style={styles.slider}
+          minimumValue={0}
+          maximumValue={100}
+          step={1}
+          value={brightness}
+          onValueChange={handleSliderChange}
+          onSlidingComplete={handleSliderComplete}
+          minimumTrackTintColor={Colors.cyan}
+          maximumTrackTintColor={Colors.border2}
+          thumbTintColor={Colors.cyan}
+          disabled={false} // Kapalıyken de ayarlanabilir — sonraki açılışta geçerli
+        />
+
+        {/* Min / Max etiketleri */}
+        <View style={styles.sliderTicks}>
+          <Text style={styles.sliderTick}>0</Text>
+          <Text style={styles.sliderTick}>50</Text>
+          <Text style={styles.sliderTick}>100</Text>
+        </View>
+
+      </Animated.View>
+
+      {/* ── Toggle butonu ─────────────────────────────────────────── */}
       <TouchableOpacity onPress={toggle} activeOpacity={0.8} style={styles.toggleWrapper}>
         <Animated.View style={[styles.toggleBtn, {
           borderColor,
@@ -246,7 +330,7 @@ export default function ControlScreen({ device, onOpenList, onAddDevice }: Props
         </Animated.View>
       </TouchableOpacity>
 
-      {/* ── Footer ───────────────────────────────────────────── */}
+      {/* ── Footer ────────────────────────────────────────────────── */}
       <View style={styles.footer}>
         <Text style={styles.footerText}>37.0° N · 35.3° E</Text>
         <View style={styles.footerSep} />
@@ -285,10 +369,7 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     paddingTop: Spacing.lg,
   },
-  deviceNameBtn: {
-    gap: 2,
-    flex: 1,
-  },
+  deviceNameBtn: { gap: 2, flex: 1 },
   deviceNameLabel: {
     fontFamily: Fonts.mono,
     fontSize: 8,
@@ -424,18 +505,8 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 4,
   },
-  bulbBase: {
-    marginTop: 3,
-    width: 26,
-    height: 7,
-    borderRadius: 2,
-  },
-  bulbNeck: {
-    marginTop: 2,
-    width: 16,
-    height: 4,
-    borderRadius: 2,
-  },
+  bulbBase: { marginTop: 3, width: 26, height: 7, borderRadius: 2 },
+  bulbNeck: { marginTop: 2, width: 16, height: 4, borderRadius: 2 },
   ray: {
     position: 'absolute',
     width: 1,
@@ -448,11 +519,7 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 2,
   },
-  stateRow: {
-    height: 24,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+  stateRow: { height: 24, alignItems: 'center', justifyContent: 'center' },
   stateOff: {
     position: 'absolute',
     fontFamily: Fonts.mono,
@@ -488,11 +555,47 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
 
-  // ── Toggle butonu ────────────────────────────────────────────────
-  toggleWrapper: {
+  // ── Brightness slider ────────────────────────────────────────────
+  sliderSection: {
     width: '100%',
-    marginBottom: Spacing.md,
+    gap: Spacing.sm,
+    marginBottom: Spacing.sm,
   },
+  sliderHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  sliderLabel: {
+    fontFamily: Fonts.mono,
+    fontSize: 9,
+    letterSpacing: 3,
+    color: Colors.text3,
+  },
+  sliderValue: {
+    fontFamily: Fonts.mono,
+    fontSize: 12,
+    letterSpacing: 2,
+    color: Colors.cyan,
+  },
+  slider: {
+    width: '100%',
+    height: 32,
+  },
+  sliderTicks: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: 4,
+  },
+  sliderTick: {
+    fontFamily: Fonts.mono,
+    fontSize: 8,
+    letterSpacing: 1,
+    color: Colors.text3,
+  },
+
+  // ── Toggle butonu ────────────────────────────────────────────────
+  toggleWrapper: { width: '100%', marginBottom: Spacing.md },
   toggleBtn: {
     width: '100%',
     height: 50,

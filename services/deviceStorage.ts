@@ -1,25 +1,23 @@
 /**
  * services/deviceStorage.ts
  * AsyncStorage üzerinde cihaz listesi için CRUD işlemleri.
- * Tüm fonksiyonlar async/await ile çalışır ve hata durumunda
- * uygulamayı çökertmek yerine güvenli varsayılan değer döner.
  */
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Device } from '../types/Device';
 
-// AsyncStorage'da cihaz listesinin tutulduğu anahtar
 const STORAGE_KEY = 'torva_devices';
+const LAST_KEY    = 'torva_last_device';
 
 // ── Tüm cihazları oku ───────────────────────────────────────────────────────
 export async function getDevices(): Promise<Device[]> {
   try {
     const raw = await AsyncStorage.getItem(STORAGE_KEY);
-    if (!raw) return [];                     // İlk kullanım — liste boş
+    if (!raw) return [];
     return JSON.parse(raw) as Device[];
   } catch (e) {
     console.error('getDevices hata:', e);
-    return [];                               // Bozuk veri varsa boş liste döner
+    return [];
   }
 }
 
@@ -27,14 +25,11 @@ export async function getDevices(): Promise<Device[]> {
 export async function addDevice(device: Device): Promise<void> {
   try {
     const current = await getDevices();
-
-    // Aynı IP'li cihaz zaten kayıtlıysa tekrar ekleme
     const alreadyExists = current.some((d) => d.ip === device.ip);
     if (alreadyExists) {
       console.log('Cihaz zaten kayıtlı:', device.ip);
       return;
     }
-
     const updated = [...current, device];
     await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
   } catch (e) {
@@ -66,10 +61,21 @@ export async function renameDevice(id: string, newName: string): Promise<void> {
   }
 }
 
-// ── Son aktif cihaz ID'sini kaydet ──────────────────────────────────────────
-// Uygulama yeniden açılınca son kullanılan cihaza dönmek için kullanılır
-const LAST_KEY = 'torva_last_device';
+// ── Brightness kaydet ───────────────────────────────────────────────────────
+// Slider bırakıldığında çağrılır — her slider hareketinde değil.
+export async function saveBrightness(id: string, brightness: number): Promise<void> {
+  try {
+    const current = await getDevices();
+    const updated = current.map((d) =>
+      d.id === id ? { ...d, brightness } : d
+    );
+    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+  } catch (e) {
+    console.error('saveBrightness hata:', e);
+  }
+}
 
+// ── Son aktif cihaz ─────────────────────────────────────────────────────────
 export async function saveLastDeviceId(id: string): Promise<void> {
   try {
     await AsyncStorage.setItem(LAST_KEY, id);
