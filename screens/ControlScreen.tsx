@@ -2,18 +2,11 @@
  * screens/ControlScreen.tsx
  * Seçili ESP32 cihazını kontrol eden ana ekran.
  *
- * Özellikler:
- *   - Işık aç/kapat (toggle)
- *   - Parlaklık slider'ı — sadece ışık açıkken görünür
- *   - Slider sürüklenirken debounce ile ESP32'ye gönderir (300ms)
- *   - Slider bırakılınca brightness AsyncStorage'a kaydedilir
- *   - Header sol: cihaz adı → DeviceListScreen
- *   - Header sağ: "+" → ScanScreen (yeni cihaz ekle)
+ * Header:
+ *   - Sol: cihaz adı → DeviceListScreen
+ *   - Sağ: otomasyon ikonu → AutomationScreen, "+" → ScanScreen
  *
- * Animasyon notu:
- *   Tüm Animated.timing çağrıları useNativeDriver:false kullanır.
- *   Bu sayede backgroundColor, borderColor, width gibi layout
- *   prop'ları ile transform (scale) aynı value üzerinden çalışabilir.
+ * Tüm animasyonlar useNativeDriver:false — layout prop karışıklığını önler.
  */
 
 import Slider from '@react-native-community/slider';
@@ -31,29 +24,29 @@ import { Colors, Fonts, Radius, Spacing } from '../theme/colors';
 import { Device } from '../types/Device';
 
 type Props = {
-  device:      Device;
-  onOpenList:  () => void; // Cihaz adına basınca → DeviceListScreen
-  onAddDevice: () => void; // "+" butonuna basınca → ScanScreen
+  device:          Device;
+  onOpenList:      () => void; // Cihaz adı → DeviceListScreen
+  onAddDevice:     () => void; // "+" → ScanScreen
+  onOpenAutomation:() => void; // Saat ikonu → AutomationScreen
 };
 
-export default function ControlScreen({ device, onOpenList, onAddDevice }: Props) {
-  const [isOn, setIsOn]           = useState(false);
-
-  // Slider değeri 0-100 arası (kullanıcıya gösterilen %)
-  // ESP32'ye gönderilirken 0-255'e dönüştürülür
+export default function ControlScreen({
+  device,
+  onOpenList,
+  onAddDevice,
+  onOpenAutomation,
+}: Props) {
+  const [isOn, setIsOn]             = useState(false);
   const [brightness, setBrightness] = useState(
     Math.round((device.brightness ?? 255) / 255 * 100)
   );
 
-  // Debounce için: slider hareket ederken bu ref'i kullanırız
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const anim        = useRef(new Animated.Value(0)).current;
+  const pulse       = useRef(new Animated.Value(1)).current;
+  const pulseRef    = useRef<Animated.CompositeAnimation | null>(null);
 
-  // Animasyon value'ları — hepsi useNativeDriver:false
-  const anim     = useRef(new Animated.Value(0)).current;
-  const pulse    = useRef(new Animated.Value(1)).current;
-  const pulseRef = useRef<Animated.CompositeAnimation | null>(null);
-
-  // Cihaz değişince ışığı kapat, brightness'ı cihazın kayıtlı değerine al
+  // Cihaz değişince sıfırla
   useEffect(() => {
     setIsOn(false);
     setBrightness(Math.round((device.brightness ?? 255) / 255 * 100));
@@ -62,7 +55,7 @@ export default function ControlScreen({ device, onOpenList, onAddDevice }: Props
     pulseRef.current?.stop();
   }, [device.id]);
 
-  // Işık aç/kapat animasyonu + pulse loop
+  // Işık animasyonu + pulse loop
   useEffect(() => {
     Animated.timing(anim, {
       toValue: isOn ? 1 : 0,
@@ -74,31 +67,18 @@ export default function ControlScreen({ device, onOpenList, onAddDevice }: Props
     if (isOn) {
       pulseRef.current = Animated.loop(
         Animated.sequence([
-          Animated.timing(pulse, {
-            toValue: 1.06, duration: 2200,
-            easing: Easing.inOut(Easing.sin),
-            useNativeDriver: false,
-          }),
-          Animated.timing(pulse, {
-            toValue: 0.97, duration: 2200,
-            easing: Easing.inOut(Easing.sin),
-            useNativeDriver: false,
-          }),
+          Animated.timing(pulse, { toValue: 1.06, duration: 2200, easing: Easing.inOut(Easing.sin), useNativeDriver: false }),
+          Animated.timing(pulse, { toValue: 0.97, duration: 2200, easing: Easing.inOut(Easing.sin), useNativeDriver: false }),
         ])
       );
       pulseRef.current.start();
     } else {
       pulseRef.current?.stop();
-      Animated.timing(pulse, {
-        toValue: 1, duration: 300,
-        useNativeDriver: false,
-      }).start();
+      Animated.timing(pulse, { toValue: 1, duration: 300, useNativeDriver: false }).start();
     }
 
     return () => { pulseRef.current?.stop(); };
   }, [isOn]);
-
-  // ── ESP32 iletişim fonksiyonları ──────────────────────────────────────────
 
   const toggle = async () => {
     const path = isOn ? '/led/off' : '/led/on';
@@ -110,42 +90,27 @@ export default function ControlScreen({ device, onOpenList, onAddDevice }: Props
     }
   };
 
-  // Slider sürüklenirken — debounce ile ESP32'ye gönder (her px'de istek atmaz)
   const handleSliderChange = (value: number) => {
-    const pct = Math.round(value); // 0-100
+    const pct = Math.round(value);
     setBrightness(pct);
-
     if (debounceRef.current) clearTimeout(debounceRef.current);
-
     debounceRef.current = setTimeout(async () => {
-      const esp32Value = Math.round(pct / 100 * 255); // 0-255'e çevir
-      try {
-        await fetch(`http://${device.ip}/led/brightness?value=${esp32Value}`);
-      } catch {
-        console.log('Brightness gönderme hatası:', device.ip);
-      }
-    }, 300); // 300ms debounce — slider bırakılmadan önce istek atmaz
+      const esp32Value = Math.round(pct / 100 * 255);
+      try { await fetch(`http://${device.ip}/led/brightness?value=${esp32Value}`); }
+      catch { console.log('Brightness hatası'); }
+    }, 300);
   };
 
-  // Slider bırakılınca brightness'ı AsyncStorage'a kaydet
   const handleSliderComplete = async (value: number) => {
     const pct        = Math.round(value);
     const esp32Value = Math.round(pct / 100 * 255);
-
-    // Debounce'u iptal et — bırakma anında direkt gönder
     if (debounceRef.current) clearTimeout(debounceRef.current);
-
-    try {
-      await fetch(`http://${device.ip}/led/brightness?value=${esp32Value}`);
-    } catch {
-      console.log('Brightness gönderme hatası:', device.ip);
-    }
-
-    // Kalıcı kayıt
+    try { await fetch(`http://${device.ip}/led/brightness?value=${esp32Value}`); }
+    catch { console.log('Brightness hatası'); }
     await saveBrightness(device.id, esp32Value);
   };
 
-  // ── Interpolasyonlar ──────────────────────────────────────────────────────
+  // ── Interpolasyonlar ─────────────────────────────────────────────
   const glowOpacity   = anim.interpolate({ inputRange: [0, 1], outputRange: [0, 1] });
   const bgColor       = anim.interpolate({ inputRange: [0, 1], outputRange: [Colors.bg, '#060a0f'] });
   const borderColor   = anim.interpolate({ inputRange: [0, 1], outputRange: [Colors.border, Colors.cyan2] });
@@ -160,23 +125,13 @@ export default function ControlScreen({ device, onOpenList, onAddDevice }: Props
   const neckColor     = anim.interpolate({ inputRange: [0, 1], outputRange: [Colors.border, Colors.border2] });
   const shadowOpacity = anim.interpolate({ inputRange: [0, 1], outputRange: [0, 0.7] });
   const shadowRadius  = anim.interpolate({ inputRange: [0, 1], outputRange: [0, 28] });
-
-  const labelOffOpacity = anim.interpolate({
-    inputRange: [0, 0.4], outputRange: [1, 0], extrapolate: 'clamp',
-  });
-  const labelOnOpacity = anim.interpolate({
-    inputRange: [0.6, 1], outputRange: [0, 1], extrapolate: 'clamp',
-  });
-
-  // Slider alanının opacity'si — sadece ışık açıkken tam görünür
-  const sliderOpacity = anim.interpolate({
-    inputRange: [0, 1], outputRange: [0.3, 1],
-  });
+  const labelOffOpacity = anim.interpolate({ inputRange: [0, 0.4], outputRange: [1, 0], extrapolate: 'clamp' });
+  const labelOnOpacity  = anim.interpolate({ inputRange: [0.6, 1], outputRange: [0, 1], extrapolate: 'clamp' });
+  const sliderOpacity   = anim.interpolate({ inputRange: [0, 1], outputRange: [0.3, 1] });
 
   return (
     <Animated.View style={[styles.root, { backgroundColor: bgColor }]}>
 
-      {/* Dekoratif scanline arka plan */}
       <View style={styles.scanlines} pointerEvents="none">
         {Array.from({ length: 18 }).map((_, i) => (
           <View key={i} style={styles.scanline} />
@@ -185,28 +140,28 @@ export default function ControlScreen({ device, onOpenList, onAddDevice }: Props
 
       {/* ── Header ────────────────────────────────────────────────── */}
       <View style={styles.header}>
-
-        {/* Sol: cihaz adı — basınca DeviceListScreen açılır */}
         <TouchableOpacity onPress={onOpenList} style={styles.deviceNameBtn}>
           <Text style={styles.deviceNameLabel}>AKTİF CİHAZ</Text>
-          <Text style={styles.deviceName} numberOfLines={1}>
-            {device.name} ›
-          </Text>
+          <Text style={styles.deviceName} numberOfLines={1}>{device.name} ›</Text>
         </TouchableOpacity>
 
-        {/* Sağ: durum noktası + yeni cihaz ekle butonu */}
         <View style={styles.headerRight}>
           <Animated.View style={[styles.statusDot, { backgroundColor: dotColor }]} />
-          <TouchableOpacity onPress={onAddDevice} style={styles.addBtn}>
-            <Text style={styles.addBtnText}>+</Text>
+
+          {/* Otomasyon butonu */}
+          <TouchableOpacity onPress={onOpenAutomation} style={styles.headerBtn}>
+            <Text style={styles.headerBtnText}>⏱</Text>
+          </TouchableOpacity>
+
+          {/* Yeni cihaz ekle butonu */}
+          <TouchableOpacity onPress={onAddDevice} style={styles.headerBtn}>
+            <Text style={styles.headerBtnText}>+</Text>
           </TouchableOpacity>
         </View>
-
       </View>
 
       <View style={styles.headerDivider} />
 
-      {/* IP satırı */}
       <View style={styles.ipRow}>
         <Text style={styles.ipLabel}>BAĞLANTI //</Text>
         <Text style={styles.ipValue}>{device.ip}</Text>
@@ -214,84 +169,47 @@ export default function ControlScreen({ device, onOpenList, onAddDevice }: Props
 
       {/* ── Lamba alanı ───────────────────────────────────────────── */}
       <View style={styles.lampSection}>
-
-        {/* Zemine yansıyan glow */}
         <Animated.View style={[styles.glowPool, { opacity: glowOpacity }]} pointerEvents="none" />
 
-        {/* Dış halka — pulse scale */}
-        <Animated.View style={[styles.ringOuter, {
-          borderColor,
-          transform: [{ scale: pulse }],
-        }]}>
-          {/* Orta halka */}
-          <Animated.View style={[styles.ringMiddle, {
-            borderColor,
-            backgroundColor: ringBg,
-          }]}>
-            {/* Ampul dokunmatik alanı */}
+        <Animated.View style={[styles.ringOuter, { borderColor, transform: [{ scale: pulse }] }]}>
+          <Animated.View style={[styles.ringMiddle, { borderColor, backgroundColor: ringBg }]}>
             <TouchableOpacity onPress={toggle} activeOpacity={0.75}>
-              <Animated.View style={[styles.bulbButton, {
-                borderColor,
-                backgroundColor: bulbBtnBg,
-                shadowOpacity,
-                shadowRadius,
-              }]}>
-                {/* Ampul ikonu */}
+              <Animated.View style={[styles.bulbButton, { borderColor, backgroundColor: bulbBtnBg, shadowOpacity, shadowRadius }]}>
                 <View style={styles.bulbIconWrapper}>
-                  <Animated.View style={[styles.bulbGlass, {
-                    backgroundColor: bulbBg,
-                    borderColor: bulbBorder,
-                  }]}>
+                  <Animated.View style={[styles.bulbGlass, { backgroundColor: bulbBg, borderColor: bulbBorder }]}>
                     <Animated.View style={[styles.bulbCore, { opacity: glowOpacity }]} />
                   </Animated.View>
                   <Animated.View style={[styles.bulbBase, { backgroundColor: baseColor }]} />
                   <Animated.View style={[styles.bulbNeck, { backgroundColor: neckColor }]} />
                 </View>
-
-                {/* Işık ışınları — sadece açıkken */}
                 {[0, 45, 90, 135, 180, 225, 270, 315].map((angle) => (
                   <Animated.View
                     key={angle}
                     pointerEvents="none"
-                    style={[styles.ray, {
-                      opacity: glowOpacity,
-                      transform: [{ rotate: `${angle}deg` }, { translateY: -44 }],
-                    }]}
+                    style={[styles.ray, { opacity: glowOpacity, transform: [{ rotate: `${angle}deg` }, { translateY: -44 }] }]}
                   />
                 ))}
-
               </Animated.View>
             </TouchableOpacity>
           </Animated.View>
         </Animated.View>
 
-        {/* Durum metni */}
         <View style={styles.stateRow}>
-          <Animated.Text style={[styles.stateOff, { opacity: labelOffOpacity }]}>
-            ○  KAPALI
-          </Animated.Text>
-          <Animated.Text style={[styles.stateOn, { opacity: labelOnOpacity }]}>
-            ●  AÇIK
-          </Animated.Text>
+          <Animated.Text style={[styles.stateOff, { opacity: labelOffOpacity }]}>○  KAPALI</Animated.Text>
+          <Animated.Text style={[styles.stateOn,  { opacity: labelOnOpacity  }]}>●  AÇIK</Animated.Text>
         </View>
 
-        {/* Progress bar */}
         <View style={styles.progressTrack}>
           <Animated.View style={[styles.progressFill, { width: progressWidth }]} />
         </View>
-
       </View>
 
       {/* ── Brightness slider ──────────────────────────────────────── */}
       <Animated.View style={[styles.sliderSection, { opacity: sliderOpacity }]}>
-
-        {/* Başlık + yüzde değeri */}
         <View style={styles.sliderHeader}>
           <Text style={styles.sliderLabel}>PARLAKLIK</Text>
           <Text style={styles.sliderValue}>{brightness}%</Text>
         </View>
-
-        {/* Slider — ışık kapalıyken soluk görünür ama yine kullanılabilir */}
         <Slider
           style={styles.slider}
           minimumValue={0}
@@ -303,30 +221,19 @@ export default function ControlScreen({ device, onOpenList, onAddDevice }: Props
           minimumTrackTintColor={Colors.cyan}
           maximumTrackTintColor={Colors.border2}
           thumbTintColor={Colors.cyan}
-          disabled={false} // Kapalıyken de ayarlanabilir — sonraki açılışta geçerli
         />
-
-        {/* Min / Max etiketleri */}
         <View style={styles.sliderTicks}>
           <Text style={styles.sliderTick}>0</Text>
           <Text style={styles.sliderTick}>50</Text>
           <Text style={styles.sliderTick}>100</Text>
         </View>
-
       </Animated.View>
 
       {/* ── Toggle butonu ─────────────────────────────────────────── */}
       <TouchableOpacity onPress={toggle} activeOpacity={0.8} style={styles.toggleWrapper}>
-        <Animated.View style={[styles.toggleBtn, {
-          borderColor,
-          backgroundColor: toggleBg,
-        }]}>
-          <Animated.Text style={[styles.toggleTextOff, { opacity: labelOffOpacity }]}>
-            [ YAK ]
-          </Animated.Text>
-          <Animated.Text style={[styles.toggleTextOn, { opacity: labelOnOpacity }]}>
-            [ SÖNDÜR ]
-          </Animated.Text>
+        <Animated.View style={[styles.toggleBtn, { borderColor, backgroundColor: toggleBg }]}>
+          <Animated.Text style={[styles.toggleTextOff, { opacity: labelOffOpacity }]}>[ YAK ]</Animated.Text>
+          <Animated.Text style={[styles.toggleTextOn,  { opacity: labelOnOpacity  }]}>[ SÖNDÜR ]</Animated.Text>
         </Animated.View>
       </TouchableOpacity>
 
@@ -342,310 +249,49 @@ export default function ControlScreen({ device, onOpenList, onAddDevice }: Props
 }
 
 const styles = StyleSheet.create({
-  root: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingTop: 56,
-    paddingBottom: 36,
-    paddingHorizontal: Spacing.xl,
-  },
-  scanlines: {
-    ...StyleSheet.absoluteFillObject,
-    justifyContent: 'space-around',
-    opacity: 0.025,
-  },
-  scanline: {
-    width: '100%',
-    height: StyleSheet.hairlineWidth,
-    backgroundColor: Colors.cyan,
-  },
-
-  // ── Header ──────────────────────────────────────────────────────
-  header: {
-    width: '100%',
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    paddingTop: Spacing.lg,
-  },
+  root: { flex: 1, alignItems: 'center', justifyContent: 'space-between', paddingTop: 56, paddingBottom: 36, paddingHorizontal: Spacing.xl },
+  scanlines: { ...StyleSheet.absoluteFillObject, justifyContent: 'space-around', opacity: 0.025 },
+  scanline: { width: '100%', height: StyleSheet.hairlineWidth, backgroundColor: Colors.cyan },
+  header: { width: '100%', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', paddingTop: Spacing.lg },
   deviceNameBtn: { gap: 2, flex: 1 },
-  deviceNameLabel: {
-    fontFamily: Fonts.mono,
-    fontSize: 8,
-    letterSpacing: 3,
-    color: Colors.text3,
-  },
-  deviceName: {
-    fontFamily: Fonts.sans,
-    fontSize: 16,
-    color: Colors.text,
-    fontWeight: '400',
-    letterSpacing: 0.3,
-  },
-  headerRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.md,
-  },
-  statusDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 999,
-  },
-  addBtn: {
-    width: 28,
-    height: 28,
-    borderRadius: Radius.sm,
-    borderWidth: 1,
-    borderColor: Colors.border2,
-    backgroundColor: Colors.bg3,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  addBtnText: {
-    fontFamily: Fonts.mono,
-    fontSize: 16,
-    color: Colors.cyan,
-    lineHeight: 20,
-  },
-  headerDivider: {
-    width: '100%',
-    height: StyleSheet.hairlineWidth,
-    backgroundColor: Colors.border,
-    marginTop: Spacing.md,
-  },
-  ipRow: {
-    width: '100%',
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.sm,
-    marginTop: Spacing.md,
-  },
-  ipLabel: {
-    fontFamily: Fonts.mono,
-    fontSize: 10,
-    letterSpacing: 3,
-    color: Colors.text3,
-  },
-  ipValue: {
-    fontFamily: Fonts.mono,
-    fontSize: 12,
-    letterSpacing: 1.5,
-    color: Colors.cyan,
-  },
-
-  // ── Lamba ───────────────────────────────────────────────────────
-  lampSection: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: Spacing.xl,
-    width: '100%',
-  },
-  glowPool: {
-    position: 'absolute',
-    bottom: 20,
-    alignSelf: 'center',
-    width: 220,
-    height: 50,
-    borderRadius: 110,
-    backgroundColor: 'transparent',
-    shadowColor: Colors.cyan,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.45,
-    shadowRadius: 40,
-    elevation: 0,
-  },
-  ringOuter: {
-    width: 220,
-    height: 220,
-    borderRadius: Radius.full,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  ringMiddle: {
-    width: 180,
-    height: 180,
-    borderRadius: Radius.full,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  bulbButton: {
-    width: 130,
-    height: 130,
-    borderRadius: Radius.full,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: Colors.cyan,
-    shadowOffset: { width: 0, height: 0 },
-    elevation: 0,
-  },
+  deviceNameLabel: { fontFamily: Fonts.mono, fontSize: 8, letterSpacing: 3, color: Colors.text3 },
+  deviceName: { fontFamily: Fonts.sans, fontSize: 16, color: Colors.text, fontWeight: '400', letterSpacing: 0.3 },
+  headerRight: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
+  statusDot: { width: 6, height: 6, borderRadius: 999 },
+  headerBtn: { width: 28, height: 28, borderRadius: Radius.sm, borderWidth: 1, borderColor: Colors.border2, backgroundColor: Colors.bg3, alignItems: 'center', justifyContent: 'center' },
+  headerBtnText: { fontFamily: Fonts.mono, fontSize: 14, color: Colors.cyan, lineHeight: 18 },
+  headerDivider: { width: '100%', height: StyleSheet.hairlineWidth, backgroundColor: Colors.border, marginTop: Spacing.md },
+  ipRow: { width: '100%', flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, marginTop: Spacing.md },
+  ipLabel: { fontFamily: Fonts.mono, fontSize: 10, letterSpacing: 3, color: Colors.text3 },
+  ipValue: { fontFamily: Fonts.mono, fontSize: 12, letterSpacing: 1.5, color: Colors.cyan },
+  lampSection: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: Spacing.xl, width: '100%' },
+  glowPool: { position: 'absolute', bottom: 20, alignSelf: 'center', width: 220, height: 50, borderRadius: 110, backgroundColor: 'transparent', shadowColor: Colors.cyan, shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.45, shadowRadius: 40, elevation: 0 },
+  ringOuter: { width: 220, height: 220, borderRadius: Radius.full, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  ringMiddle: { width: 180, height: 180, borderRadius: Radius.full, borderWidth: 1, borderColor: Colors.border, alignItems: 'center', justifyContent: 'center' },
+  bulbButton: { width: 130, height: 130, borderRadius: Radius.full, borderWidth: 1, alignItems: 'center', justifyContent: 'center', shadowColor: Colors.cyan, shadowOffset: { width: 0, height: 0 }, elevation: 0 },
   bulbIconWrapper: { alignItems: 'center' },
-  bulbGlass: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    borderWidth: 1.5,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  bulbCore: {
-    width: 14,
-    height: 14,
-    borderRadius: 7,
-    backgroundColor: '#e0f8ff',
-    shadowColor: '#ffffff',
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 1,
-    shadowRadius: 8,
-    elevation: 4,
-  },
+  bulbGlass: { width: 44, height: 44, borderRadius: 22, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center' },
+  bulbCore: { width: 14, height: 14, borderRadius: 7, backgroundColor: '#e0f8ff', shadowColor: '#ffffff', shadowOffset: { width: 0, height: 0 }, shadowOpacity: 1, shadowRadius: 8, elevation: 4 },
   bulbBase: { marginTop: 3, width: 26, height: 7, borderRadius: 2 },
   bulbNeck: { marginTop: 2, width: 16, height: 4, borderRadius: 2 },
-  ray: {
-    position: 'absolute',
-    width: 1,
-    height: 16,
-    backgroundColor: Colors.cyan,
-    borderRadius: 1,
-    shadowColor: Colors.cyan,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 1,
-    shadowRadius: 4,
-    elevation: 2,
-  },
+  ray: { position: 'absolute', width: 1, height: 16, backgroundColor: Colors.cyan, borderRadius: 1, shadowColor: Colors.cyan, shadowOffset: { width: 0, height: 0 }, shadowOpacity: 1, shadowRadius: 4, elevation: 2 },
   stateRow: { height: 24, alignItems: 'center', justifyContent: 'center' },
-  stateOff: {
-    position: 'absolute',
-    fontFamily: Fonts.mono,
-    fontSize: 11,
-    letterSpacing: 4,
-    color: Colors.text3,
-  },
-  stateOn: {
-    position: 'absolute',
-    fontFamily: Fonts.mono,
-    fontSize: 11,
-    letterSpacing: 4,
-    color: Colors.cyan,
-    shadowColor: Colors.cyan,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.9,
-    shadowRadius: 8,
-    elevation: 2,
-  },
-  progressTrack: {
-    width: 100,
-    height: 1,
-    backgroundColor: Colors.border,
-    overflow: 'hidden',
-  },
-  progressFill: {
-    height: '100%',
-    backgroundColor: Colors.cyan,
-    shadowColor: Colors.cyan,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 1,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-
-  // ── Brightness slider ────────────────────────────────────────────
-  sliderSection: {
-    width: '100%',
-    gap: Spacing.sm,
-    marginBottom: Spacing.sm,
-  },
-  sliderHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  sliderLabel: {
-    fontFamily: Fonts.mono,
-    fontSize: 9,
-    letterSpacing: 3,
-    color: Colors.text3,
-  },
-  sliderValue: {
-    fontFamily: Fonts.mono,
-    fontSize: 12,
-    letterSpacing: 2,
-    color: Colors.cyan,
-  },
-  slider: {
-    width: '100%',
-    height: 32,
-  },
-  sliderTicks: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingHorizontal: 4,
-  },
-  sliderTick: {
-    fontFamily: Fonts.mono,
-    fontSize: 8,
-    letterSpacing: 1,
-    color: Colors.text3,
-  },
-
-  // ── Toggle butonu ────────────────────────────────────────────────
+  stateOff: { position: 'absolute', fontFamily: Fonts.mono, fontSize: 11, letterSpacing: 4, color: Colors.text3 },
+  stateOn: { position: 'absolute', fontFamily: Fonts.mono, fontSize: 11, letterSpacing: 4, color: Colors.cyan, shadowColor: Colors.cyan, shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.9, shadowRadius: 8, elevation: 2 },
+  progressTrack: { width: 100, height: 1, backgroundColor: Colors.border, overflow: 'hidden' },
+  progressFill: { height: '100%', backgroundColor: Colors.cyan, shadowColor: Colors.cyan, shadowOffset: { width: 0, height: 0 }, shadowOpacity: 1, shadowRadius: 4, elevation: 2 },
+  sliderSection: { width: '100%', gap: Spacing.sm, marginBottom: Spacing.sm },
+  sliderHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  sliderLabel: { fontFamily: Fonts.mono, fontSize: 9, letterSpacing: 3, color: Colors.text3 },
+  sliderValue: { fontFamily: Fonts.mono, fontSize: 12, letterSpacing: 2, color: Colors.cyan },
+  slider: { width: '100%', height: 32 },
+  sliderTicks: { flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 4 },
+  sliderTick: { fontFamily: Fonts.mono, fontSize: 8, letterSpacing: 1, color: Colors.text3 },
   toggleWrapper: { width: '100%', marginBottom: Spacing.md },
-  toggleBtn: {
-    width: '100%',
-    height: 50,
-    borderWidth: 1,
-    borderRadius: Radius.sm,
-    alignItems: 'center',
-    justifyContent: 'center',
-    overflow: 'hidden',
-  },
-  toggleTextOff: {
-    position: 'absolute',
-    fontFamily: Fonts.mono,
-    fontSize: 14,
-    letterSpacing: 3,
-    color: Colors.text2,
-  },
-  toggleTextOn: {
-    position: 'absolute',
-    fontFamily: Fonts.mono,
-    fontSize: 14,
-    letterSpacing: 3,
-    color: Colors.cyan,
-    shadowColor: Colors.cyan,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.8,
-    shadowRadius: 6,
-    elevation: 2,
-  },
-
-  // ── Footer ──────────────────────────────────────────────────────
-  footer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.md,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: Colors.border3,
-    paddingTop: Spacing.md,
-    width: '100%',
-    justifyContent: 'center',
-  },
-  footerText: {
-    fontFamily: Fonts.mono,
-    fontSize: 9,
-    letterSpacing: 2.5,
-    color: Colors.text3,
-  },
-  footerSep: {
-    width: 3,
-    height: 3,
-    borderRadius: 2,
-    backgroundColor: Colors.border2,
-  },
+  toggleBtn: { width: '100%', height: 50, borderWidth: 1, borderRadius: Radius.sm, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+  toggleTextOff: { position: 'absolute', fontFamily: Fonts.mono, fontSize: 14, letterSpacing: 3, color: Colors.text2 },
+  toggleTextOn: { position: 'absolute', fontFamily: Fonts.mono, fontSize: 14, letterSpacing: 3, color: Colors.cyan, shadowColor: Colors.cyan, shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.8, shadowRadius: 6, elevation: 2 },
+  footer: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: Colors.border3, paddingTop: Spacing.md, width: '100%', justifyContent: 'center' },
+  footerText: { fontFamily: Fonts.mono, fontSize: 9, letterSpacing: 2.5, color: Colors.text3 },
+  footerSep: { width: 3, height: 3, borderRadius: 2, backgroundColor: Colors.border2 },
 });

@@ -1,30 +1,26 @@
 /**
  * App.tsx
- * Uygulamanın kök bileşeni — router + global state.
- *
- * Sorumluluklar:
- *   1. AsyncStorage'dan kayıtlı cihazları yüklemek
- *   2. Son kullanılan cihaza direkt geçmek (tekrar tarama gerekmez)
- *   3. Ekranlar arası geçişi yönetmek
- *   4. Aktif cihazı tutmak ve güncellemek
+ * Kök bileşen — sadece router + global state.
  *
  * Ekran akışı:
  *   Uygulama açılır
  *     ├── Kayıtlı cihaz var  → ControlScreen (son kullanılan)
  *     └── Kayıtlı cihaz yok → StartScreen
  *
- *   StartScreen → SetupScreen → ScanScreen
- *   StartScreen → ScanScreen
- *   ScanScreen  → ControlScreen (yeni cihaz kaydedildi)
+ *   StartScreen  → SetupScreen → ScanScreen
+ *   StartScreen  → ScanScreen
+ *   ScanScreen   → ControlScreen (yeni cihaz kaydedildi)
  *
- *   ControlScreen "+" → ScanScreen (yeni cihaz ekle)
+ *   ControlScreen "⏱" → AutomationScreen
+ *   ControlScreen "+" → ScanScreen
  *   ControlScreen cihaz adı → DeviceListScreen
- *   DeviceListScreen cihaz seç → ControlScreen (farklı cihaz)
+ *   DeviceListScreen cihaz seç → ControlScreen
  */
 
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 
+import AutomationScreen from './screens/AutomationScreen';
 import ControlScreen from './screens/ControlScreen';
 import DeviceListScreen from './screens/DeviceListScreen';
 import ScanScreen from './screens/ScanScreen';
@@ -39,35 +35,40 @@ import {
 import { Colors } from './theme/colors';
 import { Device } from './types/Device';
 
-// Uygulamanın olası ekran adımları
-type Step = 'loading' | 'start' | 'setup' | 'scan' | 'control' | 'deviceList';
+type Step =
+  | 'loading'
+  | 'start'
+  | 'setup'
+  | 'scan'
+  | 'control'
+  | 'deviceList'
+  | 'automation';
 
 export default function App() {
   const [step, setStep]               = useState<Step>('loading');
   const [activeDevice, setActiveDevice] = useState<Device | null>(null);
 
-  // ── Uygulama açılınca kayıtlı cihazları kontrol et ─────────────
+  // Uygulama açılınca kayıtlı cihazları kontrol et
   useEffect(() => {
     initApp();
   }, []);
 
   const initApp = async () => {
-    const devices    = await getDevices();
-    const lastId     = await getLastDeviceId();
+    const devices  = await getDevices();
+    const lastId   = await getLastDeviceId();
 
     if (devices.length === 0) {
-      // Hiç cihaz yok — kurulum/tarama ekranına gönder
       setStep('start');
       return;
     }
 
-    // Son kullanılan cihazı bul, yoksa listedeki ilk cihazı seç
-    const lastDevice = devices.find((d) => d.id === lastId) ?? devices[0];
-    setActiveDevice(lastDevice);
+    // Son kullanılan cihazı bul, yoksa ilk cihazı seç
+    const last = devices.find((d) => d.id === lastId) ?? devices[0];
+    setActiveDevice(last);
     setStep('control');
   };
 
-  // Cihaz seçildiğinde hem state'i hem AsyncStorage'ı güncelle
+  // Cihaz seçilince state + AsyncStorage güncelle
   const selectDevice = async (device: Device) => {
     setActiveDevice(device);
     await saveLastDeviceId(device.id);
@@ -77,13 +78,13 @@ export default function App() {
   // ── Yükleniyor ─────────────────────────────────────────────────
   if (step === 'loading') {
     return (
-      <View style={styles.loadingContainer}>
+      <View style={styles.loading}>
         <ActivityIndicator color={Colors.cyan} size="large" />
       </View>
     );
   }
 
-  // ── Başlangıç ekranı ───────────────────────────────────────────
+  // ── Başlangıç ──────────────────────────────────────────────────
   if (step === 'start') {
     return (
       <StartScreen
@@ -93,7 +94,7 @@ export default function App() {
     );
   }
 
-  // ── WiFi kurulum ekranı ────────────────────────────────────────
+  // ── WiFi kurulum ───────────────────────────────────────────────
   if (step === 'setup') {
     return (
       <SetupScreen
@@ -105,20 +106,17 @@ export default function App() {
     );
   }
 
-  // ── Ağ tarama / yeni cihaz ekleme ekranı ──────────────────────
+  // ── Ağ tarama / cihaz ekleme ───────────────────────────────────
   if (step === 'scan') {
     return (
       <ScanScreen
         onDeviceAdded={(device) => selectDevice(device)}
-        onBack={() => {
-          // Kayıtlı cihaz varsa geri dön, yoksa başlangıca
-          activeDevice ? setStep('control') : setStep('start');
-        }}
+        onBack={() => activeDevice ? setStep('control') : setStep('start')}
       />
     );
   }
 
-  // ── Cihaz listesi ekranı ───────────────────────────────────────
+  // ── Cihaz listesi ──────────────────────────────────────────────
   if (step === 'deviceList' && activeDevice) {
     return (
       <DeviceListScreen
@@ -130,23 +128,33 @@ export default function App() {
     );
   }
 
+  // ── Otomasyon kuralları ────────────────────────────────────────
+  if (step === 'automation' && activeDevice) {
+    return (
+      <AutomationScreen
+        device={activeDevice}
+        onBack={() => setStep('control')}
+      />
+    );
+  }
+
   // ── Ana kontrol ekranı ─────────────────────────────────────────
   if (step === 'control' && activeDevice) {
     return (
       <ControlScreen
         device={activeDevice}
-        onOpenList={()  => setStep('deviceList')}
-        onAddDevice={() => setStep('scan')}
+        onOpenList={()       => setStep('deviceList')}
+        onAddDevice={()      => setStep('scan')}
+        onOpenAutomation={() => setStep('automation')}
       />
     );
   }
 
-  // Beklenmedik durum — normalde buraya düşmemeli
   return null;
 }
 
 const styles = StyleSheet.create({
-  loadingContainer: {
+  loading: {
     flex: 1,
     backgroundColor: Colors.bg,
     alignItems: 'center',

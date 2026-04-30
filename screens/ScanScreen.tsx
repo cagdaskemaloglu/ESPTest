@@ -1,23 +1,23 @@
 /**
  * screens/ScanScreen.tsx
  * Yerel ağda ESP32 cihazı arayan ekran.
- * Cihaz bulununca direkt açmak yerine isim girdisi alır
- * ve addDevice() ile AsyncStorage'a kaydeder.
+ * Cihaz bulununca isim girdisi alır ve addDevice() ile AsyncStorage'a kaydeder.
  *
- * Props:
- *   onDeviceAdded(device) — cihaz kaydedilince App.tsx'e bildirir
- *   onBack               — geri tuşu
+ * KeyboardAvoidingView + ScrollView ile input klavyenin arkasında kalmaz.
  */
 
 import { useState } from 'react';
 import {
-    ActivityIndicator,
-    SafeAreaView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { addDevice } from '../services/deviceStorage';
 import { scanNetwork } from '../services/networkScanner';
@@ -25,30 +25,28 @@ import { Colors, Fonts, Radius, Spacing } from '../theme/colors';
 import { Device } from '../types/Device';
 
 type Props = {
-  onDeviceAdded: (device: Device) => void; // Kayıt tamamlanınca App.tsx'e döner
-  onBack:        () => void;               // Geri → önceki ekrana
+  onDeviceAdded: (device: Device) => void;
+  onBack:        () => void;
 };
 
-// Basit benzersiz ID üreteci — crypto.randomUUID() her ortamda çalışmaz
 const generateId = () =>
   `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
 
 export default function ScanScreen({ onDeviceAdded, onBack }: Props) {
-  const [scanning, setScanning]       = useState(false);
-  // foundIp: tarama sonucu bulunan IP — isim giriş formunu tetikler
-  const [foundIp, setFoundIp]         = useState<string | null>(null);
-  const [deviceName, setDeviceName]   = useState('');
-  const [saving, setSaving]           = useState(false);
+  const [scanning, setScanning]     = useState(false);
+  const [foundIp, setFoundIp]       = useState<string | null>(null);
+  const [deviceName, setDeviceName] = useState('');
+  const [saving, setSaving]         = useState(false);
 
   const startScan = async () => {
     console.log('🚀 SCAN BAŞLADI');
     setScanning(true);
-    setFoundIp(null);   // Önceki sonucu temizle
+    setFoundIp(null);
     setDeviceName('');
 
     await scanNetwork((ip) => {
       console.log('🎯 DEVICE FOUND:', ip);
-      setFoundIp(ip);   // IP bulununca formu göster
+      setFoundIp(ip);
       setScanning(false);
     });
 
@@ -56,149 +54,153 @@ export default function ScanScreen({ onDeviceAdded, onBack }: Props) {
     console.log('🏁 SCAN BİTTİ');
   };
 
-  // Kullanıcı isim girip onayladı — cihazı kaydet
   const handleSave = async () => {
     if (!foundIp || !deviceName.trim()) return;
     setSaving(true);
 
     const newDevice: Device = {
-      id:      generateId(),
-      name:    deviceName.trim(),
-      ip:      foundIp,
-      addedAt: Date.now(),
+      id:         generateId(),
+      name:       deviceName.trim(),
+      ip:         foundIp,
+      addedAt:    Date.now(),
+      brightness: 255,
     };
 
-    await addDevice(newDevice);      // AsyncStorage'a yaz
+    await addDevice(newDevice);
     setSaving(false);
-    onDeviceAdded(newDevice);        // App.tsx'e bildir → ControlScreen'e geç
+    onDeviceAdded(newDevice);
   };
 
   return (
+    // SafeAreaView arka plan rengini tutar, KeyboardAvoidingView içeriği kaydırır
     <SafeAreaView style={styles.root}>
+      <KeyboardAvoidingView
+        style={styles.kavWrapper}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={0}
+      >
 
-      {/* ── Header ── */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={onBack} style={styles.backBtn}>
-          <Text style={styles.backText}>← GERİ</Text>
-        </TouchableOpacity>
-        <Text style={styles.headerBrand}>TORVA · LAB</Text>
-        <View style={styles.headerRight}>
-          <View style={[
-            styles.statusDot,
-            { backgroundColor: scanning ? Colors.cyan : Colors.text3 },
-          ]} />
-          <Text style={styles.headerMeta}>v2.0</Text>
-        </View>
-      </View>
-      <View style={styles.headerDivider} />
-
-      <View style={styles.body}>
-
-        {/* Başlık */}
-        <View style={styles.titleBlock}>
-          <Text style={styles.titleEyebrow}>// TARAMA</Text>
-          <Text style={styles.titleMain}>Cihaz{'\n'}Ekle</Text>
-          <Text style={styles.titleDesc}>
-            Yerel ağda ESP32 cihazı aranıyor
-          </Text>
-        </View>
-
-        {/* Tarama aktifken gösterge */}
-        {scanning && (
-          <View style={styles.scanningCard}>
-            <ActivityIndicator color={Colors.cyan} size="small" />
-            <View style={styles.scanningTextGroup}>
-              <Text style={styles.scanningLabel}>AĞ TARANIYOR</Text>
-              <Text style={styles.scanningSubLabel}>192.168.1.0/24</Text>
-            </View>
-          </View>
-        )}
-
-        {/* Cihaz bulununca isim giriş formu */}
-        {foundIp && !scanning && (
-          <View style={styles.foundCard}>
-
-            {/* Bulunan IP bilgisi */}
-            <View style={styles.foundHeader}>
-              <View style={styles.foundDot} />
-              <Text style={styles.foundLabel}>CİHAZ BULUNDU</Text>
-            </View>
-            <Text style={styles.foundIp}>{foundIp}</Text>
-
-            <View style={styles.dividerLine} />
-
-            {/* Cihaza isim ver */}
-            <Text style={styles.fieldLabel}>CİHAZ ADI</Text>
-            <TextInput
-              value={deviceName}
-              onChangeText={setDeviceName}
-              placeholder="örn. Salon Lambası"
-              placeholderTextColor={Colors.text3}
-              autoFocus
-              style={styles.nameInput}
-              onSubmitEditing={handleSave}
-            />
-
-            {/* Kaydet butonu */}
-            <TouchableOpacity
-              onPress={handleSave}
-              disabled={!deviceName.trim() || saving}
-              activeOpacity={0.75}
-              style={[
-                styles.saveBtn,
-                (!deviceName.trim() || saving) && styles.saveBtnDisabled,
-              ]}
-            >
-              <Text style={[
-                styles.saveBtnText,
-                (!deviceName.trim() || saving) && styles.saveBtnTextDisabled,
-              ]}>
-                {saving ? '[ KAYDEDİLİYOR... ]' : '[ KAYDET ve BAĞLAN ]'}
-              </Text>
-            </TouchableOpacity>
-
-          </View>
-        )}
-
-        {/* Ayraç */}
-        {!foundIp && (
-          <View style={styles.dividerRow}>
-            <View style={styles.dividerLineRow} />
-            <Text style={styles.dividerLabel}>AKSİYON</Text>
-            <View style={styles.dividerLineRow} />
-          </View>
-        )}
-
-        {/* Tarama butonu — cihaz bulununca gizlenir */}
-        {!foundIp && (
-          <View style={styles.buttonGroup}>
-            <TouchableOpacity
-              onPress={startScan}
-              disabled={scanning}
-              activeOpacity={0.75}
-              style={[styles.primaryBtn, scanning && styles.btnDisabled]}
-            >
-              <Text style={styles.primaryBtnLabel}>TARAMA</Text>
-              <Text style={[
-                styles.primaryBtnText,
-                scanning && styles.btnTextDisabled,
-              ]}>
-                {scanning ? '[ Taranıyor... ]' : '[ Ağda Ara ]'}
-              </Text>
-            </TouchableOpacity>
-          </View>
-        )}
-
-        {/* Cihaz bulunduktan sonra tekrar tara seçeneği */}
-        {foundIp && (
-          <TouchableOpacity onPress={startScan} style={styles.rescanBtn}>
-            <Text style={styles.rescanText}>↺ Tekrar Tara</Text>
+        {/* ── Header ── */}
+        <View style={styles.header}>
+          <TouchableOpacity onPress={onBack} style={styles.backBtn}>
+            <Text style={styles.backText}>← GERİ</Text>
           </TouchableOpacity>
-        )}
+          <Text style={styles.headerBrand}>TORVA · LAB</Text>
+          <View style={styles.headerRight}>
+            <View style={[
+              styles.statusDot,
+              { backgroundColor: scanning ? Colors.cyan : Colors.text3 },
+            ]} />
+            <Text style={styles.headerMeta}>v2.0</Text>
+          </View>
+        </View>
+        <View style={styles.headerDivider} />
 
-      </View>
+        {/* ScrollView: klavye açılınca içerik yukarı kayar */}
+        <ScrollView
+          contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
 
-      {/* ── Footer ── */}
+          {/* Başlık */}
+          <View style={styles.titleBlock}>
+            <Text style={styles.titleEyebrow}>// TARAMA</Text>
+            <Text style={styles.titleMain}>Cihaz{'\n'}Ekle</Text>
+            <Text style={styles.titleDesc}>Yerel ağda ESP32 cihazı aranıyor</Text>
+          </View>
+
+          {/* Tarama göstergesi */}
+          {scanning && (
+            <View style={styles.scanningCard}>
+              <ActivityIndicator color={Colors.cyan} size="small" />
+              <View style={styles.scanningTextGroup}>
+                <Text style={styles.scanningLabel}>AĞ TARANIYOR</Text>
+                <Text style={styles.scanningSubLabel}>192.168.1.0/24</Text>
+              </View>
+            </View>
+          )}
+
+          {/* Cihaz bulununca isim giriş formu */}
+          {foundIp && !scanning && (
+            <View style={styles.foundCard}>
+
+              {/* Bulunan IP */}
+              <View style={styles.foundHeader}>
+                <View style={styles.foundDot} />
+                <Text style={styles.foundLabel}>CİHAZ BULUNDU</Text>
+              </View>
+              <Text style={styles.foundIp}>{foundIp}</Text>
+              <View style={styles.dividerLine} />
+
+              {/* İsim input — klavye açılınca ScrollView sayesinde görünür kalır */}
+              <Text style={styles.fieldLabel}>CİHAZ ADI</Text>
+              <TextInput
+                value={deviceName}
+                onChangeText={setDeviceName}
+                placeholder="örn. Salon Lambası"
+                placeholderTextColor={Colors.text3}
+                autoFocus
+                returnKeyType="done"
+                onSubmitEditing={handleSave}
+                style={styles.nameInput}
+              />
+
+              {/* Kaydet butonu */}
+              <TouchableOpacity
+                onPress={handleSave}
+                disabled={!deviceName.trim() || saving}
+                activeOpacity={0.75}
+                style={[
+                  styles.saveBtn,
+                  (!deviceName.trim() || saving) && styles.saveBtnDisabled,
+                ]}
+              >
+                <Text style={[
+                  styles.saveBtnText,
+                  (!deviceName.trim() || saving) && styles.saveBtnTextDisabled,
+                ]}>
+                  {saving ? '[ KAYDEDİLİYOR... ]' : '[ KAYDET ve BAĞLAN ]'}
+                </Text>
+              </TouchableOpacity>
+
+            </View>
+          )}
+
+          {/* Tarama butonu — cihaz bulunmadan önce gösterilir */}
+          {!foundIp && (
+            <>
+              <View style={styles.dividerRow}>
+                <View style={styles.dividerLineRow} />
+                <Text style={styles.dividerLabel}>AKSİYON</Text>
+                <View style={styles.dividerLineRow} />
+              </View>
+
+              <TouchableOpacity
+                onPress={startScan}
+                disabled={scanning}
+                activeOpacity={0.75}
+                style={[styles.primaryBtn, scanning && styles.btnDisabled]}
+              >
+                <Text style={styles.primaryBtnLabel}>TARAMA</Text>
+                <Text style={[styles.primaryBtnText, scanning && styles.btnTextDisabled]}>
+                  {scanning ? '[ Taranıyor... ]' : '[ Ağda Ara ]'}
+                </Text>
+              </TouchableOpacity>
+            </>
+          )}
+
+          {/* Cihaz bulunduktan sonra tekrar tara */}
+          {foundIp && (
+            <TouchableOpacity onPress={startScan} style={styles.rescanBtn}>
+              <Text style={styles.rescanText}>↺ Tekrar Tara</Text>
+            </TouchableOpacity>
+          )}
+
+        </ScrollView>
+      </KeyboardAvoidingView>
+
+      {/* Footer — klavye dışında, her zaman altta */}
       <View style={styles.footer}>
         <Text style={styles.footerText}>37.0° N · 35.3° E</Text>
         <View style={styles.footerSep} />
@@ -213,10 +215,21 @@ const styles = StyleSheet.create({
   root: {
     flex: 1,
     backgroundColor: Colors.bg,
+  },
+  // KeyboardAvoidingView flex:1 ile kalan alanı doldurur
+  kavWrapper: {
+    flex: 1,
     paddingHorizontal: Spacing.xl,
     paddingTop: Spacing.lg,
+  },
+  scrollContent: {
+    flexGrow: 1,
+    justifyContent: 'center',
+    gap: Spacing.xl,
     paddingBottom: Spacing.xl,
   },
+
+  // ── Header ──────────────────────────────────────────────────────
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -243,11 +256,7 @@ const styles = StyleSheet.create({
     minWidth: 60,
     justifyContent: 'flex-end',
   },
-  statusDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 999,
-  },
+  statusDot: { width: 6, height: 6, borderRadius: 999 },
   headerMeta: {
     fontFamily: Fonts.mono,
     fontSize: 10,
@@ -259,11 +268,8 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.border,
     marginTop: Spacing.md,
   },
-  body: {
-    flex: 1,
-    justifyContent: 'center',
-    gap: Spacing.xl,
-  },
+
+  // ── İçerik ──────────────────────────────────────────────────────
   titleBlock: { gap: Spacing.sm },
   titleEyebrow: {
     fontFamily: Fonts.mono,
@@ -310,6 +316,7 @@ const styles = StyleSheet.create({
     letterSpacing: 2,
     color: Colors.text3,
   },
+
   // Bulunan cihaz kartı
   foundCard: {
     borderWidth: 1,
@@ -383,10 +390,8 @@ const styles = StyleSheet.create({
     color: Colors.cyan,
   },
   saveBtnTextDisabled: { color: Colors.text3 },
-  rescanBtn: {
-    alignSelf: 'center',
-    paddingVertical: Spacing.sm,
-  },
+
+  rescanBtn: { alignSelf: 'center', paddingVertical: Spacing.sm },
   rescanText: {
     fontFamily: Fonts.mono,
     fontSize: 11,
@@ -409,7 +414,6 @@ const styles = StyleSheet.create({
     letterSpacing: 3,
     color: Colors.text3,
   },
-  buttonGroup: { gap: Spacing.md },
   primaryBtn: {
     borderWidth: 1,
     borderColor: Colors.cyan2,
@@ -431,11 +435,10 @@ const styles = StyleSheet.create({
     letterSpacing: 2,
     color: Colors.cyan,
   },
-  btnDisabled: {
-    borderColor: Colors.border,
-    backgroundColor: Colors.bg3,
-  },
+  btnDisabled: { borderColor: Colors.border, backgroundColor: Colors.bg3 },
   btnTextDisabled: { color: Colors.text3 },
+
+  // Footer SafeAreaView'in içinde ama KAV dışında — klavyeden etkilenmez
   footer: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -444,6 +447,8 @@ const styles = StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: Colors.border3,
     paddingTop: Spacing.md,
+    paddingBottom: Spacing.md,
+    paddingHorizontal: Spacing.xl,
   },
   footerText: {
     fontFamily: Fonts.mono,
@@ -451,10 +456,5 @@ const styles = StyleSheet.create({
     letterSpacing: 2.5,
     color: Colors.text3,
   },
-  footerSep: {
-    width: 3,
-    height: 3,
-    borderRadius: 2,
-    backgroundColor: Colors.border2,
-  },
+  footerSep: { width: 3, height: 3, borderRadius: 2, backgroundColor: Colors.border2 },
 });

@@ -1,7 +1,16 @@
+/**
+ * screens/SetupScreen.tsx
+ * ESP32'ye WiFi bilgilerini gönderen kurulum ekranı.
+ *
+ * KeyboardAvoidingView + ScrollView ile her iki input da
+ * klavye açılınca görünür kalır, arkada kalmaz.
+ */
+
 import { useState } from 'react';
 import {
   KeyboardAvoidingView,
   Platform,
+  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
@@ -11,7 +20,11 @@ import {
 } from 'react-native';
 import { Colors, Fonts, Radius, Spacing } from '../theme/colors';
 
-export default function SetupScreen({ onDone }: { onDone: () => void }) {
+type Props = {
+  onDone: () => void;
+};
+
+export default function SetupScreen({ onDone }: Props) {
   const [ssid, setSsid]         = useState('');
   const [password, setPassword] = useState('');
   const [status, setStatus]     = useState('ESP32 ağına bağlan (ESP32-Setup)');
@@ -50,20 +63,17 @@ export default function SetupScreen({ onDone }: { onDone: () => void }) {
   };
 
   const statusColor =
-    phase === 'error'      ? Colors.red  :
+    phase === 'error'      ? Colors.red   :
     phase === 'done'       ? Colors.green :
     phase === 'connecting' ? Colors.cyan  :
     Colors.text2;
 
   return (
-    <KeyboardAvoidingView
-      style={styles.root}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-    >
-      <ScrollView
-        contentContainerStyle={styles.scroll}
-        keyboardShouldPersistTaps="handled"
-        showsVerticalScrollIndicator={false}
+    <SafeAreaView style={styles.root}>
+      <KeyboardAvoidingView
+        style={styles.kavWrapper}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={0}
       >
 
         {/* ── Header ── */}
@@ -71,123 +81,128 @@ export default function SetupScreen({ onDone }: { onDone: () => void }) {
           <Text style={styles.headerBrand}>TORVA · LAB</Text>
           <View style={styles.headerRight}>
             <View style={[styles.statusDot, {
-              backgroundColor: phase === 'connecting' ? Colors.cyan
-                             : phase === 'done'       ? Colors.green
-                             : phase === 'error'      ? Colors.red
-                             : Colors.text3,
+              backgroundColor:
+                phase === 'connecting' ? Colors.cyan  :
+                phase === 'done'       ? Colors.green :
+                phase === 'error'      ? Colors.red   :
+                Colors.text3,
             }]} />
             <Text style={styles.headerMeta}>SETUP</Text>
           </View>
         </View>
-
         <View style={styles.headerDivider} />
 
-        {/* ── Başlık ── */}
-        <View style={styles.titleRow}>
-          <Text style={styles.titleLabel}>// KURULUM</Text>
-          <Text style={styles.titleSub}>ESP32 Wi-Fi Yapılandırması</Text>
-        </View>
+        {/* ScrollView: klavye açılınca şifre inputu görünür kalır */}
+        <ScrollView
+          contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
 
-        {/* ── Adım kartları ── */}
-        <View style={styles.stepsCard}>
-          <View style={styles.stepRow}>
-            <Text style={styles.stepNum}>01</Text>
-            <Text style={styles.stepText}>
-              Telefonunu{' '}
-              <Text style={styles.stepHighlight}>ESP32-Setup</Text>
-              {' '}WiFi ağına bağla
-            </Text>
-          </View>
-          <View style={styles.stepDivider} />
-          <View style={styles.stepRow}>
-            <Text style={styles.stepNum}>02</Text>
-            <Text style={styles.stepText}>
-              Aşağıya kendi WiFi bilgilerini gir ve kurulumu tamamla
-            </Text>
-          </View>
-        </View>
-
-        {/* ── Form ── */}
-        <View style={styles.formSection}>
-
-          {/* SSID */}
-          <View style={styles.fieldGroup}>
-            <Text style={styles.fieldLabel}>WiFi SSID</Text>
-            <TextInput
-              value={ssid}
-              onChangeText={setSsid}
-              placeholder="ağ adını gir"
-              placeholderTextColor={Colors.text3}
-              autoCapitalize="none"
-              autoCorrect={false}
-              style={styles.input}
-            />
+          {/* Başlık */}
+          <View style={styles.titleBlock}>
+            <Text style={styles.titleLabel}>// KURULUM</Text>
+            <Text style={styles.titleSub}>ESP32 Wi-Fi Yapılandırması</Text>
           </View>
 
-          {/* Şifre */}
-          <View style={styles.fieldGroup}>
-            <Text style={styles.fieldLabel}>ŞİFRE</Text>
-            <TextInput
-              value={password}
-              onChangeText={setPassword}
-              placeholder="••••••••"
-              placeholderTextColor={Colors.text3}
-              secureTextEntry
-              autoCapitalize="none"
-              autoCorrect={false}
-              style={styles.input}
-            />
+          {/* Adım kartları */}
+          <View style={styles.stepsCard}>
+            <View style={styles.stepRow}>
+              <Text style={styles.stepNum}>01</Text>
+              <Text style={styles.stepText}>
+                Telefonunu{' '}
+                <Text style={styles.stepHighlight}>ESP32-Setup</Text>
+                {' '}WiFi ağına bağla
+              </Text>
+            </View>
+            <View style={styles.stepDivider} />
+            <View style={styles.stepRow}>
+              <Text style={styles.stepNum}>02</Text>
+              <Text style={styles.stepText}>
+                Aşağıya kendi WiFi bilgilerini gir ve kurulumu tamamla
+              </Text>
+            </View>
           </View>
 
-        </View>
+          {/* Form */}
+          <View style={styles.formSection}>
 
-        {/* ── Durum mesajı ── */}
-        <View style={styles.statusRow}>
+            {/* SSID */}
+            <View style={styles.fieldGroup}>
+              <Text style={styles.fieldLabel}>WiFi SSID</Text>
+              <TextInput
+                value={ssid}
+                onChangeText={setSsid}
+                placeholder="ağ adını gir"
+                placeholderTextColor={Colors.text3}
+                autoCapitalize="none"
+                autoCorrect={false}
+                returnKeyType="next"
+                style={styles.input}
+              />
+            </View>
+
+            {/* Şifre */}
+            <View style={styles.fieldGroup}>
+              <Text style={styles.fieldLabel}>ŞİFRE</Text>
+              <TextInput
+                value={password}
+                onChangeText={setPassword}
+                placeholder="••••••••"
+                placeholderTextColor={Colors.text3}
+                secureTextEntry
+                autoCapitalize="none"
+                autoCorrect={false}
+                returnKeyType="done"
+                onSubmitEditing={setup}
+                style={styles.input}
+              />
+            </View>
+
+          </View>
+
+          {/* Durum mesajı */}
           <View style={[styles.statusBar, { backgroundColor: statusColor + '22' }]}>
             <View style={[styles.statusBarAccent, { backgroundColor: statusColor }]} />
-            <Text style={[styles.statusText, { color: statusColor }]}>
-              {status}
-            </Text>
+            <Text style={[styles.statusText, { color: statusColor }]}>{status}</Text>
           </View>
-        </View>
 
-        {/* ── Butonlar ── */}
-        <View style={styles.buttonGroup}>
-          <TouchableOpacity
-            onPress={setup}
-            disabled={loading || !ssid}
-            activeOpacity={0.75}
-            style={[
-              styles.primaryBtn,
-              (loading || !ssid) && styles.primaryBtnDisabled,
-            ]}
-          >
-            <Text style={[
-              styles.primaryBtnText,
-              (loading || !ssid) && styles.primaryBtnTextDisabled,
-            ]}>
-              {loading ? '[ BAĞLANIYOR... ]' : '[ KURULUMU TAMAMLA ]'}
-            </Text>
-          </TouchableOpacity>
+          {/* Butonlar */}
+          <View style={styles.buttonGroup}>
+            <TouchableOpacity
+              onPress={setup}
+              disabled={loading || !ssid}
+              activeOpacity={0.75}
+              style={[styles.primaryBtn, (loading || !ssid) && styles.primaryBtnDisabled]}
+            >
+              <Text style={[
+                styles.primaryBtnText,
+                (loading || !ssid) && styles.primaryBtnTextDisabled,
+              ]}>
+                {loading ? '[ BAĞLANIYOR... ]' : '[ KURULUMU TAMAMLA ]'}
+              </Text>
+            </TouchableOpacity>
 
-          <TouchableOpacity
-            onPress={onDone}
-            activeOpacity={0.75}
-            style={styles.secondaryBtn}
-          >
-            <Text style={styles.secondaryBtnText}>← GERİ</Text>
-          </TouchableOpacity>
-        </View>
+            <TouchableOpacity
+              onPress={onDone}
+              activeOpacity={0.75}
+              style={styles.secondaryBtn}
+            >
+              <Text style={styles.secondaryBtnText}>← GERİ</Text>
+            </TouchableOpacity>
+          </View>
 
-        {/* ── Footer ── */}
-        <View style={styles.footer}>
-          <Text style={styles.footerText}>192.168.4.1</Text>
-          <View style={styles.footerSep} />
-          <Text style={styles.footerText}>ESP32 Access Point</Text>
-        </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
 
-      </ScrollView>
-    </KeyboardAvoidingView>
+      {/* Footer — KAV dışında, klavyeden etkilenmez */}
+      <View style={styles.footer}>
+        <Text style={styles.footerText}>192.168.4.1</Text>
+        <View style={styles.footerSep} />
+        <Text style={styles.footerText}>ESP32 Access Point</Text>
+      </View>
+
+    </SafeAreaView>
   );
 }
 
@@ -196,19 +211,24 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: Colors.bg,
   },
-  scroll: {
-    paddingTop: 56,
-    paddingBottom: 40,
+  kavWrapper: {
+    flex: 1,
     paddingHorizontal: Spacing.xl,
+    paddingTop: Spacing.lg,
+  },
+  scrollContent: {
+    flexGrow: 1,
     gap: Spacing.xl,
+    paddingBottom: Spacing.xl,
   },
 
-  // ── Header ──
+  // ── Header ──────────────────────────────────────────────────────
   header: {
     width: '100%',
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    paddingTop: Spacing.lg,
   },
   headerBrand: {
     fontFamily: Fonts.mono,
@@ -233,16 +253,13 @@ const styles = StyleSheet.create({
     color: Colors.text3,
   },
   headerDivider: {
-    width: '100%',
     height: StyleSheet.hairlineWidth,
     backgroundColor: Colors.border,
+    marginTop: Spacing.md,
   },
 
-  // ── Başlık ──
-  titleRow: {
-    gap: Spacing.xs,
-    marginTop: Spacing.sm,
-  },
+  // ── Başlık ──────────────────────────────────────────────────────
+  titleBlock: { gap: Spacing.xs },
   titleLabel: {
     fontFamily: Fonts.mono,
     fontSize: 10,
@@ -257,7 +274,7 @@ const styles = StyleSheet.create({
     fontWeight: '300',
   },
 
-  // ── Adım kartı ──
+  // ── Adım kartı ──────────────────────────────────────────────────
   stepsCard: {
     borderWidth: 1,
     borderColor: Colors.border,
@@ -298,13 +315,9 @@ const styles = StyleSheet.create({
     marginVertical: Spacing.xs,
   },
 
-  // ── Form ──
-  formSection: {
-    gap: Spacing.lg,
-  },
-  fieldGroup: {
-    gap: Spacing.sm,
-  },
+  // ── Form ─────────────────────────────────────────────────────────
+  formSection: { gap: Spacing.lg },
+  fieldGroup:  { gap: Spacing.sm },
   fieldLabel: {
     fontFamily: Fonts.mono,
     fontSize: 9,
@@ -324,10 +337,7 @@ const styles = StyleSheet.create({
     color: Colors.text,
   },
 
-  // ── Durum mesajı ──
-  statusRow: {
-    marginTop: -Spacing.sm,
-  },
+  // ── Durum mesajı ─────────────────────────────────────────────────
   statusBar: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -339,9 +349,8 @@ const styles = StyleSheet.create({
   },
   statusBarAccent: {
     width: 2,
-    height: '100%',
-    borderRadius: 1,
     minHeight: 16,
+    borderRadius: 1,
   },
   statusText: {
     fontFamily: Fonts.mono,
@@ -351,10 +360,8 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
 
-  // ── Butonlar ──
-  buttonGroup: {
-    gap: Spacing.md,
-  },
+  // ── Butonlar ─────────────────────────────────────────────────────
+  buttonGroup: { gap: Spacing.md },
   primaryBtn: {
     width: '100%',
     height: 50,
@@ -375,9 +382,7 @@ const styles = StyleSheet.create({
     letterSpacing: 3,
     color: Colors.cyan,
   },
-  primaryBtnTextDisabled: {
-    color: Colors.text3,
-  },
+  primaryBtnTextDisabled: { color: Colors.text3 },
   secondaryBtn: {
     width: '100%',
     height: 44,
@@ -395,7 +400,7 @@ const styles = StyleSheet.create({
     color: Colors.text2,
   },
 
-  // ── Footer ──
+  // ── Footer ──────────────────────────────────────────────────────
   footer: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -403,7 +408,9 @@ const styles = StyleSheet.create({
     gap: Spacing.md,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: Colors.border3,
-    paddingTop: Spacing.lg,
+    paddingTop: Spacing.md,
+    paddingBottom: Spacing.md,
+    paddingHorizontal: Spacing.xl,
   },
   footerText: {
     fontFamily: Fonts.mono,
