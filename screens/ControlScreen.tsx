@@ -1,12 +1,11 @@
 /**
  * screens/ControlScreen.tsx
- * Seçili ESP32 cihazını kontrol eden ana ekran.
+ * ESP32 WS2812B şerit LED kontrol ekranı.
  *
- * Header:
- *   - Sol: cihaz adı → DeviceListScreen
- *   - Sağ: otomasyon ikonu → AutomationScreen, "+" → ScanScreen
- *
- * Tüm animasyonlar useNativeDriver:false — layout prop karışıklığını önler.
+ * Renk picker accordion olarak çalışır:
+ *   - Ana ekranda küçük renk butonu (önizleme kutusu + hex değeri)
+ *   - Butona basınca picker açılır/kapanır (Animated yükseklik)
+ *   - Picker açıkken diğer içerik kayar, ekran dışına taşmaz
  */
 
 import Slider from '@react-native-community/slider';
@@ -14,21 +13,36 @@ import { useEffect, useRef, useState } from 'react';
 import {
   Animated,
   Easing,
+  LayoutAnimation,
+  Platform,
+  ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
+  UIManager,
   View,
 } from 'react-native';
-import { saveBrightness } from '../services/deviceStorage';
+import ColorPicker from '../components/ColorPicker';
+import { saveBrightness, saveColor } from '../services/deviceStorage';
 import { Colors, Fonts, Radius, Spacing } from '../theme/colors';
 import { Device } from '../types/Device';
 
+// Android'de LayoutAnimation için gerekli
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
+
 type Props = {
-  device:          Device;
-  onOpenList:      () => void; // Cihaz adı → DeviceListScreen
-  onAddDevice:     () => void; // "+" → ScanScreen
-  onOpenAutomation:() => void; // Saat ikonu → AutomationScreen
+  device:           Device;
+  onOpenList:       () => void;
+  onAddDevice:      () => void;
+  onOpenAutomation: () => void;
 };
+
+// RGB → hex string (önizleme için)
+function rgbToHex(r: number, g: number, b: number): string {
+  return '#' + [r, g, b].map((v) => v.toString(16).padStart(2, '0')).join('');
+}
 
 export default function ControlScreen({
   device,
@@ -40,6 +54,14 @@ export default function ControlScreen({
   const [brightness, setBrightness] = useState(
     Math.round((device.brightness ?? 255) / 255 * 100)
   );
+  const [color, setColor] = useState({
+    r: device.color?.r ?? 255,
+    g: device.color?.g ?? 255,
+    b: device.color?.b ?? 255,
+  });
+
+  // Renk picker accordion açık/kapalı
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const anim        = useRef(new Animated.Value(0)).current;
@@ -49,13 +71,32 @@ export default function ControlScreen({
   // Cihaz değişince sıfırla
   useEffect(() => {
     setIsOn(false);
+    setPickerOpen(false);
     setBrightness(Math.round((device.brightness ?? 255) / 255 * 100));
+    setColor({
+      r: device.color?.r ?? 255,
+      g: device.color?.g ?? 255,
+      b: device.color?.b ?? 255,
+    });
     anim.setValue(0);
     pulse.setValue(1);
     pulseRef.current?.stop();
+    syncState();
   }, [device.id]);
 
-  // Işık animasyonu + pulse loop
+  // ESP32'den mevcut durumu senkronize et
+  const syncState = async () => {
+    try {
+      const res  = await fetch(`http://${device.ip}/led/state`);
+      const data = await res.json();
+      if (data.on !== undefined) setIsOn(data.on);
+      if (data.r  !== undefined) setColor({ r: data.r, g: data.g, b: data.b });
+      if (data.brightness !== undefined)
+        setBrightness(Math.round(data.brightness / 255 * 100));
+    } catch { /* ESP32 erişilemiyorsa mevcut state korunur */ }
+  };
+
+  // Işık animasyonu + pulse
   useEffect(() => {
     Animated.timing(anim, {
       toValue: isOn ? 1 : 0,
@@ -76,18 +117,25 @@ export default function ControlScreen({
       pulseRef.current?.stop();
       Animated.timing(pulse, { toValue: 1, duration: 300, useNativeDriver: false }).start();
     }
-
     return () => { pulseRef.current?.stop(); };
   }, [isOn]);
+
+  // ── Picker accordion toggle ─────────────────────────────────────────────────
+  const togglePicker = () => {
+    LayoutAnimation.configureNext(
+      LayoutAnimation.create(250, LayoutAnimation.Types.easeInEaseOut, LayoutAnimation.Properties.opacity)
+    );
+    setPickerOpen((prev) => !prev);
+  };
+
+  // ── ESP32 iletişim ──────────────────────────────────────────────────────────
 
   const toggle = async () => {
     const path = isOn ? '/led/off' : '/led/on';
     try {
       await fetch(`http://${device.ip}${path}`);
       setIsOn(!isOn);
-    } catch {
-      console.log('Bağlantı hatası:', device.ip);
-    }
+    } catch { console.log('Toggle hatası'); }
   };
 
   const handleSliderChange = (value: number) => {
@@ -95,65 +143,66 @@ export default function ControlScreen({
     setBrightness(pct);
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(async () => {
-      const esp32Value = Math.round(pct / 100 * 255);
-      try { await fetch(`http://${device.ip}/led/brightness?value=${esp32Value}`); }
+      try { await fetch(`http://${device.ip}/led/brightness?value=${Math.round(pct / 100 * 255)}`); }
       catch { console.log('Brightness hatası'); }
     }, 300);
   };
 
   const handleSliderComplete = async (value: number) => {
-    const pct        = Math.round(value);
-    const esp32Value = Math.round(pct / 100 * 255);
+    const pct = Math.round(value);
+    const esp  = Math.round(pct / 100 * 255);
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    try { await fetch(`http://${device.ip}/led/brightness?value=${esp32Value}`); }
+    try { await fetch(`http://${device.ip}/led/brightness?value=${esp}`); }
     catch { console.log('Brightness hatası'); }
-    await saveBrightness(device.id, esp32Value);
+    await saveBrightness(device.id, esp);
   };
 
-  // ── Interpolasyonlar ─────────────────────────────────────────────
+  const handleColorChange = async (r: number, g: number, b: number) => {
+    setColor({ r, g, b });
+    try { await fetch(`http://${device.ip}/led/color?r=${r}&g=${g}&b=${b}`); }
+    catch { console.log('Color hatası'); }
+    await saveColor(device.id, { r, g, b });
+  };
+
+  // ── Interpolasyonlar ────────────────────────────────────────────────────────
+  const colorCss      = `rgb(${color.r},${color.g},${color.b})`;
+  const colorHex      = rgbToHex(color.r, color.g, color.b);
+
   const glowOpacity   = anim.interpolate({ inputRange: [0, 1], outputRange: [0, 1] });
   const bgColor       = anim.interpolate({ inputRange: [0, 1], outputRange: [Colors.bg, '#060a0f'] });
-  const borderColor   = anim.interpolate({ inputRange: [0, 1], outputRange: [Colors.border, Colors.cyan2] });
-  const bulbBg        = anim.interpolate({ inputRange: [0, 1], outputRange: [Colors.bg3, Colors.cyan] });
-  const bulbBorder    = anim.interpolate({ inputRange: [0, 1], outputRange: [Colors.border2, Colors.cyan] });
+  const borderColor   = anim.interpolate({ inputRange: [0, 1], outputRange: [Colors.border, Colors.border2] });
   const progressWidth = anim.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] });
   const ringBg        = anim.interpolate({ inputRange: [0, 1], outputRange: [Colors.bg3, 'rgba(0,212,255,0.04)'] });
-  const bulbBtnBg     = anim.interpolate({ inputRange: [0, 1], outputRange: [Colors.bg4, 'rgba(0,212,255,0.10)'] });
+  const bulbBtnBg     = anim.interpolate({ inputRange: [0, 1], outputRange: [Colors.bg4, 'rgba(0,212,255,0.06)'] });
   const toggleBg      = anim.interpolate({ inputRange: [0, 1], outputRange: [Colors.bg3, 'rgba(0,212,255,0.08)'] });
   const dotColor      = anim.interpolate({ inputRange: [0, 1], outputRange: [Colors.text3, Colors.cyan] });
-  const baseColor     = anim.interpolate({ inputRange: [0, 1], outputRange: [Colors.border, Colors.cyan2] });
-  const neckColor     = anim.interpolate({ inputRange: [0, 1], outputRange: [Colors.border, Colors.border2] });
-  const shadowOpacity = anim.interpolate({ inputRange: [0, 1], outputRange: [0, 0.7] });
-  const shadowRadius  = anim.interpolate({ inputRange: [0, 1], outputRange: [0, 28] });
-  const labelOffOpacity = anim.interpolate({ inputRange: [0, 0.4], outputRange: [1, 0], extrapolate: 'clamp' });
-  const labelOnOpacity  = anim.interpolate({ inputRange: [0.6, 1], outputRange: [0, 1], extrapolate: 'clamp' });
-  const sliderOpacity   = anim.interpolate({ inputRange: [0, 1], outputRange: [0.3, 1] });
+  const shadowOpacity = anim.interpolate({ inputRange: [0, 1], outputRange: [0, 0.8] });
+  const shadowRadius  = anim.interpolate({ inputRange: [0, 1], outputRange: [0, 36] });
+  const labelOffOp    = anim.interpolate({ inputRange: [0, 0.4], outputRange: [1, 0], extrapolate: 'clamp' });
+  const labelOnOp     = anim.interpolate({ inputRange: [0.6, 1], outputRange: [0, 1], extrapolate: 'clamp' });
+  const sliderOp      = anim.interpolate({ inputRange: [0, 1], outputRange: [0.4, 1] });
 
   return (
     <Animated.View style={[styles.root, { backgroundColor: bgColor }]}>
 
+      {/* Scanline arka plan */}
       <View style={styles.scanlines} pointerEvents="none">
         {Array.from({ length: 18 }).map((_, i) => (
           <View key={i} style={styles.scanline} />
         ))}
       </View>
 
-      {/* ── Header ────────────────────────────────────────────────── */}
+      {/* ── Header ───────────────────────────────────────────────── */}
       <View style={styles.header}>
         <TouchableOpacity onPress={onOpenList} style={styles.deviceNameBtn}>
           <Text style={styles.deviceNameLabel}>AKTİF CİHAZ</Text>
           <Text style={styles.deviceName} numberOfLines={1}>{device.name} ›</Text>
         </TouchableOpacity>
-
         <View style={styles.headerRight}>
           <Animated.View style={[styles.statusDot, { backgroundColor: dotColor }]} />
-
-          {/* Otomasyon butonu */}
           <TouchableOpacity onPress={onOpenAutomation} style={styles.headerBtn}>
             <Text style={styles.headerBtnText}>⏱</Text>
           </TouchableOpacity>
-
-          {/* Yeni cihaz ekle butonu */}
           <TouchableOpacity onPress={onAddDevice} style={styles.headerBtn}>
             <Text style={styles.headerBtnText}>+</Text>
           </TouchableOpacity>
@@ -167,77 +216,167 @@ export default function ControlScreen({
         <Text style={styles.ipValue}>{device.ip}</Text>
       </View>
 
-      {/* ── Lamba alanı ───────────────────────────────────────────── */}
-      <View style={styles.lampSection}>
-        <Animated.View style={[styles.glowPool, { opacity: glowOpacity }]} pointerEvents="none" />
+      {/* ── ScrollView ───────────────────────────────────────────── */}
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+      >
 
-        <Animated.View style={[styles.ringOuter, { borderColor, transform: [{ scale: pulse }] }]}>
-          <Animated.View style={[styles.ringMiddle, { borderColor, backgroundColor: ringBg }]}>
-            <TouchableOpacity onPress={toggle} activeOpacity={0.75}>
-              <Animated.View style={[styles.bulbButton, { borderColor, backgroundColor: bulbBtnBg, shadowOpacity, shadowRadius }]}>
-                <View style={styles.bulbIconWrapper}>
-                  <Animated.View style={[styles.bulbGlass, { backgroundColor: bulbBg, borderColor: bulbBorder }]}>
-                    <Animated.View style={[styles.bulbCore, { opacity: glowOpacity }]} />
-                  </Animated.View>
-                  <Animated.View style={[styles.bulbBase, { backgroundColor: baseColor }]} />
-                  <Animated.View style={[styles.bulbNeck, { backgroundColor: neckColor }]} />
-                </View>
-                {[0, 45, 90, 135, 180, 225, 270, 315].map((angle) => (
-                  <Animated.View
-                    key={angle}
-                    pointerEvents="none"
-                    style={[styles.ray, { opacity: glowOpacity, transform: [{ rotate: `${angle}deg` }, { translateY: -44 }] }]}
-                  />
-                ))}
-              </Animated.View>
-            </TouchableOpacity>
+        {/* ── Lamba ──────────────────────────────────────────────── */}
+        <View style={styles.lampSection}>
+
+          <Animated.View
+            pointerEvents="none"
+            style={[styles.glowPool, {
+              opacity: glowOpacity,
+              shadowColor: colorCss,
+            }]}
+          />
+
+          <Animated.View style={[styles.ringOuter, {
+            borderColor,
+            transform: [{ scale: pulse }],
+          }]}>
+            <Animated.View style={[styles.ringMiddle, { borderColor, backgroundColor: ringBg }]}>
+              <TouchableOpacity onPress={toggle} activeOpacity={0.75}>
+                <Animated.View style={[styles.bulbButton, {
+                  borderColor,
+                  backgroundColor: bulbBtnBg,
+                  shadowColor: colorCss,
+                  shadowOpacity,
+                  shadowRadius,
+                }]}>
+                  <View style={styles.bulbIconWrapper}>
+                    <Animated.View style={[styles.bulbGlass, {
+                      backgroundColor: isOn ? colorCss : Colors.bg3,
+                      borderColor:     isOn ? colorCss : Colors.border2,
+                    }]}>
+                      <Animated.View style={[styles.bulbCore, { opacity: glowOpacity }]} />
+                    </Animated.View>
+                    <Animated.View style={[styles.bulbBase, {
+                      backgroundColor: isOn ? colorCss : Colors.border,
+                    }]} />
+                    <Animated.View style={[styles.bulbNeck, {
+                      backgroundColor: isOn ? Colors.border2 : Colors.border,
+                    }]} />
+                  </View>
+                  {[0, 45, 90, 135, 180, 225, 270, 315].map((angle) => (
+                    <Animated.View
+                      key={angle}
+                      pointerEvents="none"
+                      style={[styles.ray, {
+                        opacity: glowOpacity,
+                        backgroundColor: colorCss,
+                        shadowColor: colorCss,
+                        transform: [{ rotate: `${angle}deg` }, { translateY: -44 }],
+                      }]}
+                    />
+                  ))}
+                </Animated.View>
+              </TouchableOpacity>
+            </Animated.View>
           </Animated.View>
+
+          <View style={styles.stateRow}>
+            <Animated.Text style={[styles.stateOff, { opacity: labelOffOp }]}>○  KAPALI</Animated.Text>
+            <Animated.Text style={[styles.stateOn, { opacity: labelOnOp, color: colorCss }]}>●  AÇIK</Animated.Text>
+          </View>
+
+          <View style={styles.progressTrack}>
+            <Animated.View style={[styles.progressFill, {
+              width: progressWidth,
+              backgroundColor: colorCss,
+              shadowColor: colorCss,
+            }]} />
+          </View>
+
+        </View>
+
+        {/* ── Toggle butonu ──────────────────────────────────────── */}
+        <TouchableOpacity onPress={toggle} activeOpacity={0.8}>
+          <Animated.View style={[styles.toggleBtn, { borderColor, backgroundColor: toggleBg }]}>
+            <Animated.Text style={[styles.toggleTextOff, { opacity: labelOffOp }]}>[ YAK ]</Animated.Text>
+            <Animated.Text style={[styles.toggleTextOn,  { opacity: labelOnOp, color: colorCss }]}>[ SÖNDÜR ]</Animated.Text>
+          </Animated.View>
+        </TouchableOpacity>
+
+        {/* ── Parlaklık slider ────────────────────────────────────── */}
+        <Animated.View style={[styles.sliderSection, { opacity: sliderOp }]}>
+          <View style={styles.sliderHeader}>
+            <Text style={styles.sliderLabel}>PARLAKLIK</Text>
+            <Text style={[styles.sliderValue, isOn && { color: colorCss }]}>{brightness}%</Text>
+          </View>
+          <Slider
+            style={styles.slider}
+            minimumValue={0}
+            maximumValue={100}
+            step={1}
+            value={brightness}
+            onValueChange={handleSliderChange}
+            onSlidingComplete={handleSliderComplete}
+            minimumTrackTintColor={isOn ? colorCss : Colors.border2}
+            maximumTrackTintColor={Colors.border}
+            thumbTintColor={isOn ? colorCss : Colors.text2}
+          />
+          <View style={styles.sliderTicks}>
+            <Text style={styles.sliderTick}>0</Text>
+            <Text style={styles.sliderTick}>50</Text>
+            <Text style={styles.sliderTick}>100</Text>
+          </View>
         </Animated.View>
 
-        <View style={styles.stateRow}>
-          <Animated.Text style={[styles.stateOff, { opacity: labelOffOpacity }]}>○  KAPALI</Animated.Text>
-          <Animated.Text style={[styles.stateOn,  { opacity: labelOnOpacity  }]}>●  AÇIK</Animated.Text>
+        {/* ── Renk seçici accordion ───────────────────────────────── */}
+        <View style={styles.colorAccordion}>
+
+          {/* Accordion başlık butonu */}
+          <TouchableOpacity
+            onPress={togglePicker}
+            activeOpacity={0.8}
+            style={styles.colorBtn}
+          >
+            {/* Sol: etiket + kapalıyken uyarı */}
+            <View style={styles.colorBtnLeft}>
+              <Text style={styles.colorBtnLabel}>RENK</Text>
+              {!isOn && (
+                <Text style={styles.colorBtnNote}>açılınca uygulanacak</Text>
+              )}
+            </View>
+
+            {/* Orta: seçili renk önizlemesi + hex */}
+            <View style={styles.colorBtnPreview}>
+              <View style={[styles.colorDot, {
+                backgroundColor: colorCss,
+                shadowColor: colorCss,
+              }]} />
+              <Text style={styles.colorHex}>{colorHex}</Text>
+            </View>
+
+            {/* Sağ: aç/kapat oku */}
+            <Text style={[styles.colorChevron, pickerOpen && styles.colorChevronOpen]}>
+              ›
+            </Text>
+          </TouchableOpacity>
+
+          {/* Picker paneli — LayoutAnimation ile açılıp kapanır */}
+          {pickerOpen && (
+            <View style={styles.colorPanel}>
+              <View style={styles.colorPanelDivider} />
+              <ColorPicker
+                initialR={color.r}
+                initialG={color.g}
+                initialB={color.b}
+                onChange={handleColorChange}
+              />
+            </View>
+          )}
+
         </View>
 
-        <View style={styles.progressTrack}>
-          <Animated.View style={[styles.progressFill, { width: progressWidth }]} />
-        </View>
-      </View>
+      </ScrollView>
 
-      {/* ── Brightness slider ──────────────────────────────────────── */}
-      <Animated.View style={[styles.sliderSection, { opacity: sliderOpacity }]}>
-        <View style={styles.sliderHeader}>
-          <Text style={styles.sliderLabel}>PARLAKLIK</Text>
-          <Text style={styles.sliderValue}>{brightness}%</Text>
-        </View>
-        <Slider
-          style={styles.slider}
-          minimumValue={0}
-          maximumValue={100}
-          step={1}
-          value={brightness}
-          onValueChange={handleSliderChange}
-          onSlidingComplete={handleSliderComplete}
-          minimumTrackTintColor={Colors.cyan}
-          maximumTrackTintColor={Colors.border2}
-          thumbTintColor={Colors.cyan}
-        />
-        <View style={styles.sliderTicks}>
-          <Text style={styles.sliderTick}>0</Text>
-          <Text style={styles.sliderTick}>50</Text>
-          <Text style={styles.sliderTick}>100</Text>
-        </View>
-      </Animated.View>
-
-      {/* ── Toggle butonu ─────────────────────────────────────────── */}
-      <TouchableOpacity onPress={toggle} activeOpacity={0.8} style={styles.toggleWrapper}>
-        <Animated.View style={[styles.toggleBtn, { borderColor, backgroundColor: toggleBg }]}>
-          <Animated.Text style={[styles.toggleTextOff, { opacity: labelOffOpacity }]}>[ YAK ]</Animated.Text>
-          <Animated.Text style={[styles.toggleTextOn,  { opacity: labelOnOpacity  }]}>[ SÖNDÜR ]</Animated.Text>
-        </Animated.View>
-      </TouchableOpacity>
-
-      {/* ── Footer ────────────────────────────────────────────────── */}
+      {/* ── Footer ───────────────────────────────────────────────── */}
       <View style={styles.footer}>
         <Text style={styles.footerText}>37.0° N · 35.3° E</Text>
         <View style={styles.footerSep} />
@@ -249,49 +388,139 @@ export default function ControlScreen({
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, alignItems: 'center', justifyContent: 'space-between', paddingTop: 56, paddingBottom: 36, paddingHorizontal: Spacing.xl },
+  root: { flex: 1, paddingTop: 56 },
   scanlines: { ...StyleSheet.absoluteFillObject, justifyContent: 'space-around', opacity: 0.025 },
-  scanline: { width: '100%', height: StyleSheet.hairlineWidth, backgroundColor: Colors.cyan },
-  header: { width: '100%', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', paddingTop: Spacing.lg },
+  scanline:  { width: '100%', height: StyleSheet.hairlineWidth, backgroundColor: Colors.cyan },
+
+  // Header
+  header: { width: '100%', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', paddingTop: Spacing.lg, paddingHorizontal: Spacing.xl },
   deviceNameBtn: { gap: 2, flex: 1 },
   deviceNameLabel: { fontFamily: Fonts.mono, fontSize: 8, letterSpacing: 3, color: Colors.text3 },
-  deviceName: { fontFamily: Fonts.sans, fontSize: 16, color: Colors.text, fontWeight: '400', letterSpacing: 0.3 },
+  deviceName: { fontFamily: Fonts.sans, fontSize: 16, color: Colors.text, fontWeight: '400' },
   headerRight: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
   statusDot: { width: 6, height: 6, borderRadius: 999 },
   headerBtn: { width: 28, height: 28, borderRadius: Radius.sm, borderWidth: 1, borderColor: Colors.border2, backgroundColor: Colors.bg3, alignItems: 'center', justifyContent: 'center' },
   headerBtnText: { fontFamily: Fonts.mono, fontSize: 14, color: Colors.cyan, lineHeight: 18 },
-  headerDivider: { width: '100%', height: StyleSheet.hairlineWidth, backgroundColor: Colors.border, marginTop: Spacing.md },
-  ipRow: { width: '100%', flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, marginTop: Spacing.md },
+  headerDivider: { height: StyleSheet.hairlineWidth, backgroundColor: Colors.border, marginTop: Spacing.md, marginHorizontal: Spacing.xl },
+  ipRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, marginTop: Spacing.md, paddingHorizontal: Spacing.xl },
   ipLabel: { fontFamily: Fonts.mono, fontSize: 10, letterSpacing: 3, color: Colors.text3 },
   ipValue: { fontFamily: Fonts.mono, fontSize: 12, letterSpacing: 1.5, color: Colors.cyan },
-  lampSection: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: Spacing.xl, width: '100%' },
-  glowPool: { position: 'absolute', bottom: 20, alignSelf: 'center', width: 220, height: 50, borderRadius: 110, backgroundColor: 'transparent', shadowColor: Colors.cyan, shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.45, shadowRadius: 40, elevation: 0 },
-  ringOuter: { width: 220, height: 220, borderRadius: Radius.full, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
-  ringMiddle: { width: 180, height: 180, borderRadius: Radius.full, borderWidth: 1, borderColor: Colors.border, alignItems: 'center', justifyContent: 'center' },
-  bulbButton: { width: 130, height: 130, borderRadius: Radius.full, borderWidth: 1, alignItems: 'center', justifyContent: 'center', shadowColor: Colors.cyan, shadowOffset: { width: 0, height: 0 }, elevation: 0 },
+
+  // ScrollView
+  scroll: { flex: 1 },
+  scrollContent: { paddingHorizontal: Spacing.xl, paddingBottom: Spacing.xl, gap: Spacing.xl, paddingTop: Spacing.lg },
+
+  // Lamba
+  lampSection: { alignItems: 'center', gap: Spacing.lg },
+  glowPool: { position: 'absolute', bottom: -10, alignSelf: 'center', width: 240, height: 60, borderRadius: 120, backgroundColor: 'transparent', shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.5, shadowRadius: 40, elevation: 0 },
+  ringOuter: { width: 200, height: 200, borderRadius: 999, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  ringMiddle: { width: 164, height: 164, borderRadius: 999, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  bulbButton: { width: 120, height: 120, borderRadius: 999, borderWidth: 1, alignItems: 'center', justifyContent: 'center', shadowOffset: { width: 0, height: 0 }, elevation: 0 },
   bulbIconWrapper: { alignItems: 'center' },
   bulbGlass: { width: 44, height: 44, borderRadius: 22, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center' },
-  bulbCore: { width: 14, height: 14, borderRadius: 7, backgroundColor: '#e0f8ff', shadowColor: '#ffffff', shadowOffset: { width: 0, height: 0 }, shadowOpacity: 1, shadowRadius: 8, elevation: 4 },
+  bulbCore: { width: 14, height: 14, borderRadius: 7, backgroundColor: '#ffffff', shadowColor: '#ffffff', shadowOffset: { width: 0, height: 0 }, shadowOpacity: 1, shadowRadius: 8, elevation: 4 },
   bulbBase: { marginTop: 3, width: 26, height: 7, borderRadius: 2 },
   bulbNeck: { marginTop: 2, width: 16, height: 4, borderRadius: 2 },
-  ray: { position: 'absolute', width: 1, height: 16, backgroundColor: Colors.cyan, borderRadius: 1, shadowColor: Colors.cyan, shadowOffset: { width: 0, height: 0 }, shadowOpacity: 1, shadowRadius: 4, elevation: 2 },
+  ray: { position: 'absolute', width: 1, height: 16, borderRadius: 1, shadowOffset: { width: 0, height: 0 }, shadowOpacity: 1, shadowRadius: 4, elevation: 2 },
   stateRow: { height: 24, alignItems: 'center', justifyContent: 'center' },
   stateOff: { position: 'absolute', fontFamily: Fonts.mono, fontSize: 11, letterSpacing: 4, color: Colors.text3 },
-  stateOn: { position: 'absolute', fontFamily: Fonts.mono, fontSize: 11, letterSpacing: 4, color: Colors.cyan, shadowColor: Colors.cyan, shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.9, shadowRadius: 8, elevation: 2 },
+  stateOn:  { position: 'absolute', fontFamily: Fonts.mono, fontSize: 11, letterSpacing: 4 },
   progressTrack: { width: 100, height: 1, backgroundColor: Colors.border, overflow: 'hidden' },
-  progressFill: { height: '100%', backgroundColor: Colors.cyan, shadowColor: Colors.cyan, shadowOffset: { width: 0, height: 0 }, shadowOpacity: 1, shadowRadius: 4, elevation: 2 },
-  sliderSection: { width: '100%', gap: Spacing.sm, marginBottom: Spacing.sm },
-  sliderHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  sliderLabel: { fontFamily: Fonts.mono, fontSize: 9, letterSpacing: 3, color: Colors.text3 },
-  sliderValue: { fontFamily: Fonts.mono, fontSize: 12, letterSpacing: 2, color: Colors.cyan },
-  slider: { width: '100%', height: 32 },
-  sliderTicks: { flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 4 },
-  sliderTick: { fontFamily: Fonts.mono, fontSize: 8, letterSpacing: 1, color: Colors.text3 },
-  toggleWrapper: { width: '100%', marginBottom: Spacing.md },
+  progressFill:  { height: '100%', shadowOffset: { width: 0, height: 0 }, shadowOpacity: 1, shadowRadius: 4, elevation: 2 },
+
+  // Toggle
   toggleBtn: { width: '100%', height: 50, borderWidth: 1, borderRadius: Radius.sm, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
   toggleTextOff: { position: 'absolute', fontFamily: Fonts.mono, fontSize: 14, letterSpacing: 3, color: Colors.text2 },
-  toggleTextOn: { position: 'absolute', fontFamily: Fonts.mono, fontSize: 14, letterSpacing: 3, color: Colors.cyan, shadowColor: Colors.cyan, shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.8, shadowRadius: 6, elevation: 2 },
-  footer: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: Colors.border3, paddingTop: Spacing.md, width: '100%', justifyContent: 'center' },
+  toggleTextOn:  { position: 'absolute', fontFamily: Fonts.mono, fontSize: 14, letterSpacing: 3 },
+
+  // Brightness slider
+  sliderSection: { gap: 4 },
+  sliderHeader: { flexDirection: 'row', justifyContent: 'space-between' },
+  sliderLabel: { fontFamily: Fonts.mono, fontSize: 9, letterSpacing: 3, color: Colors.text3 },
+  sliderValue: { fontFamily: Fonts.mono, fontSize: 12, letterSpacing: 2, color: Colors.text2 },
+  slider: { width: '100%', height: 28, marginVertical: 2 },
+  sliderTicks: { flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 4 },
+  sliderTick: { fontFamily: Fonts.mono, fontSize: 8, letterSpacing: 1, color: Colors.text3 },
+
+  // ── Renk accordion ──────────────────────────────────────────────
+  colorAccordion: {
+    borderWidth: 1,
+    borderColor: Colors.border,
+    borderRadius: Radius.md,
+    backgroundColor: Colors.bg3,
+    overflow: 'hidden',
+  },
+
+  // Accordion başlık satırı
+  colorBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.md,
+    gap: Spacing.md,
+  },
+  colorBtnLeft: {
+    flex: 1,
+    gap: 2,
+  },
+  colorBtnLabel: {
+    fontFamily: Fonts.mono,
+    fontSize: 9,
+    letterSpacing: 3,
+    color: Colors.text3,
+  },
+  colorBtnNote: {
+    fontFamily: Fonts.mono,
+    fontSize: 8,
+    letterSpacing: 1,
+    color: Colors.amber,
+  },
+  colorBtnPreview: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+  },
+  colorDot: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    borderWidth: 1,
+    borderColor: Colors.border2,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.7,
+    shadowRadius: 6,
+    elevation: 3,
+  },
+  colorHex: {
+    fontFamily: Fonts.mono,
+    fontSize: 12,
+    letterSpacing: 2,
+    color: Colors.text2,
+  },
+  colorChevron: {
+    fontFamily: Fonts.mono,
+    fontSize: 18,
+    color: Colors.text2,
+    transform: [{ rotate: '0deg' }],
+    lineHeight: 22,
+  },
+  colorChevronOpen: {
+    transform: [{ rotate: '90deg' }],
+  },
+
+  // Accordion açık panel
+  colorPanel: {
+    paddingHorizontal: Spacing.lg,
+    paddingBottom: Spacing.lg,
+  },
+  colorPanelDivider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: Colors.border,
+    marginBottom: Spacing.lg,
+  },
+
+  // Footer
+  footer: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: Colors.border3, paddingTop: Spacing.md, paddingBottom: Spacing.xl, paddingHorizontal: Spacing.xl, justifyContent: 'center' },
   footerText: { fontFamily: Fonts.mono, fontSize: 9, letterSpacing: 2.5, color: Colors.text3 },
   footerSep: { width: 3, height: 3, borderRadius: 2, backgroundColor: Colors.border2 },
 });

@@ -64,6 +64,7 @@ export default function ScanScreen({ onDeviceAdded, onBack }: Props) {
       ip:         foundIp,
       addedAt:    Date.now(),
       brightness: 255,
+      color: { r: 255, g: 255, b: 255 },
     };
 
     await addDevice(newDevice);

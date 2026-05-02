@@ -4,6 +4,8 @@
  *
  * KeyboardAvoidingView + ScrollView ile her iki input da
  * klavye açılınca görünür kalır, arkada kalmaz.
+ * 
+ * 
  */
 
 import { useState } from 'react';

@@ -9,86 +9,89 @@ import { Device } from '../types/Device';
 const STORAGE_KEY = 'torva_devices';
 const LAST_KEY    = 'torva_last_device';
 
-// ── Tüm cihazları oku ───────────────────────────────────────────────────────
+// Yeni eklenen cihazlar için varsayılan renk — beyaz
+const DEFAULT_COLOR = { r: 255, g: 255, b: 255 };
+
 export async function getDevices(): Promise<Device[]> {
   try {
     const raw = await AsyncStorage.getItem(STORAGE_KEY);
     if (!raw) return [];
-    return JSON.parse(raw) as Device[];
+    const devices = JSON.parse(raw) as Device[];
+    // Eski kayıtlarda color alanı yoksa varsayılan ekle (geriye dönük uyumluluk)
+    return devices.map((d) => ({
+      ...d,
+      color: d.color ?? DEFAULT_COLOR,
+    }));
   } catch (e) {
     console.error('getDevices hata:', e);
     return [];
   }
 }
 
-// ── Yeni cihaz ekle ─────────────────────────────────────────────────────────
 export async function addDevice(device: Device): Promise<void> {
   try {
-    const current = await getDevices();
+    const current     = await getDevices();
     const alreadyExists = current.some((d) => d.ip === device.ip);
-    if (alreadyExists) {
-      console.log('Cihaz zaten kayıtlı:', device.ip);
-      return;
-    }
-    const updated = [...current, device];
-    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+    if (alreadyExists) { console.log('Cihaz zaten kayıtlı:', device.ip); return; }
+    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify([...current, device]));
   } catch (e) {
     console.error('addDevice hata:', e);
   }
 }
 
-// ── Cihaz sil ───────────────────────────────────────────────────────────────
 export async function removeDevice(id: string): Promise<void> {
   try {
     const current = await getDevices();
-    const updated = current.filter((d) => d.id !== id);
-    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(current.filter((d) => d.id !== id)));
   } catch (e) {
     console.error('removeDevice hata:', e);
   }
 }
 
-// ── Cihaz adını güncelle ────────────────────────────────────────────────────
 export async function renameDevice(id: string, newName: string): Promise<void> {
   try {
     const current = await getDevices();
-    const updated = current.map((d) =>
-      d.id === id ? { ...d, name: newName } : d
-    );
-    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(
+      current.map((d) => d.id === id ? { ...d, name: newName } : d)
+    ));
   } catch (e) {
     console.error('renameDevice hata:', e);
   }
 }
 
-// ── Brightness kaydet ───────────────────────────────────────────────────────
-// Slider bırakıldığında çağrılır — her slider hareketinde değil.
+// Brightness kaydet
 export async function saveBrightness(id: string, brightness: number): Promise<void> {
   try {
     const current = await getDevices();
-    const updated = current.map((d) =>
-      d.id === id ? { ...d, brightness } : d
-    );
-    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(
+      current.map((d) => d.id === id ? { ...d, brightness } : d)
+    ));
   } catch (e) {
     console.error('saveBrightness hata:', e);
   }
 }
 
-// ── Son aktif cihaz ─────────────────────────────────────────────────────────
-export async function saveLastDeviceId(id: string): Promise<void> {
+// Renk kaydet — ışık kapalıyken de çağrılır
+export async function saveColor(
+  id: string,
+  color: { r: number; g: number; b: number }
+): Promise<void> {
   try {
-    await AsyncStorage.setItem(LAST_KEY, id);
+    const current = await getDevices();
+    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(
+      current.map((d) => d.id === id ? { ...d, color } : d)
+    ));
   } catch (e) {
-    console.error('saveLastDeviceId hata:', e);
+    console.error('saveColor hata:', e);
   }
 }
 
+export async function saveLastDeviceId(id: string): Promise<void> {
+  try { await AsyncStorage.setItem(LAST_KEY, id); }
+  catch (e) { console.error('saveLastDeviceId hata:', e); }
+}
+
 export async function getLastDeviceId(): Promise<string | null> {
-  try {
-    return await AsyncStorage.getItem(LAST_KEY);
-  } catch (e) {
-    console.error('getLastDeviceId hata:', e);
-    return null;
-  }
+  try { return await AsyncStorage.getItem(LAST_KEY); }
+  catch (e) { console.error('getLastDeviceId hata:', e); return null; }
 }
