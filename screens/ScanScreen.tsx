@@ -1,9 +1,9 @@
 /**
  * screens/ScanScreen.tsx
- * Yerel ağda ESP32 cihazı arayan ekran.
- * Cihaz bulununca isim girdisi alır ve addDevice() ile AsyncStorage'a kaydeder.
+ * Paralel ağ taraması ile ESP32 cihazı bulan ekran.
  *
- * KeyboardAvoidingView + ScrollView ile input klavyenin arkasında kalmaz.
+ * onProgress callback'i ile tarama ilerlemesi gösterilir.
+ * Cihaz bulununca isim giriş formu açılır ve kaydedilir.
  */
 
 import { useState } from 'react';
@@ -33,22 +33,29 @@ const generateId = () =>
   `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
 
 export default function ScanScreen({ onDeviceAdded, onBack }: Props) {
-  const [scanning, setScanning]     = useState(false);
-  const [foundIp, setFoundIp]       = useState<string | null>(null);
-  const [deviceName, setDeviceName] = useState('');
-  const [saving, setSaving]         = useState(false);
+  const [scanning, setScanning]         = useState(false);
+  const [progress, setProgress]         = useState({ scanned: 0, total: 254 });
+  const [foundIp, setFoundIp]           = useState<string | null>(null);
+  const [deviceName, setDeviceName]     = useState('');
+  const [saving, setSaving]             = useState(false);
 
   const startScan = async () => {
     console.log('🚀 SCAN BAŞLADI');
     setScanning(true);
     setFoundIp(null);
     setDeviceName('');
+    setProgress({ scanned: 0, total: 254 });
 
-    await scanNetwork((ip) => {
-      console.log('🎯 DEVICE FOUND:', ip);
-      setFoundIp(ip);
-      setScanning(false);
-    });
+    await scanNetwork(
+      (ip) => {
+        setFoundIp(ip);
+        setScanning(false);
+      },
+      // onProgress: tarama ilerlemesini güncelle
+      (scanned, total) => {
+        setProgress({ scanned, total });
+      },
+    );
 
     setScanning(false);
     console.log('🏁 SCAN BİTTİ');
@@ -64,7 +71,7 @@ export default function ScanScreen({ onDeviceAdded, onBack }: Props) {
       ip:         foundIp,
       addedAt:    Date.now(),
       brightness: 255,
-      color: { r: 255, g: 255, b: 255 },
+      color:      { r: 255, g: 255, b: 255 },
     };
 
     await addDevice(newDevice);
@@ -72,13 +79,16 @@ export default function ScanScreen({ onDeviceAdded, onBack }: Props) {
     onDeviceAdded(newDevice);
   };
 
+  // İlerleme yüzdesi
+  const progressPct = progress.total > 0
+    ? Math.round((progress.scanned / progress.total) * 100)
+    : 0;
+
   return (
-    // SafeAreaView arka plan rengini tutar, KeyboardAvoidingView içeriği kaydırır
     <SafeAreaView style={styles.root}>
       <KeyboardAvoidingView
         style={styles.kavWrapper}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={0}
       >
 
         {/* ── Header ── */}
@@ -88,16 +98,14 @@ export default function ScanScreen({ onDeviceAdded, onBack }: Props) {
           </TouchableOpacity>
           <Text style={styles.headerBrand}>TORVA · LAB</Text>
           <View style={styles.headerRight}>
-            <View style={[
-              styles.statusDot,
-              { backgroundColor: scanning ? Colors.cyan : Colors.text3 },
-            ]} />
+            <View style={[styles.statusDot, {
+              backgroundColor: scanning ? Colors.cyan : Colors.text3,
+            }]} />
             <Text style={styles.headerMeta}>v2.0</Text>
           </View>
         </View>
         <View style={styles.headerDivider} />
 
-        {/* ScrollView: klavye açılınca içerik yukarı kayar */}
         <ScrollView
           contentContainerStyle={styles.scrollContent}
           keyboardShouldPersistTaps="handled"
@@ -111,30 +119,37 @@ export default function ScanScreen({ onDeviceAdded, onBack }: Props) {
             <Text style={styles.titleDesc}>Yerel ağda ESP32 cihazı aranıyor</Text>
           </View>
 
-          {/* Tarama göstergesi */}
+          {/* ── Tarama göstergesi ── */}
           {scanning && (
             <View style={styles.scanningCard}>
               <ActivityIndicator color={Colors.cyan} size="small" />
               <View style={styles.scanningTextGroup}>
                 <Text style={styles.scanningLabel}>AĞ TARANIYOR</Text>
-                <Text style={styles.scanningSubLabel}>192.168.1.0/24</Text>
+                <Text style={styles.scanningSubLabel}>
+                  {progress.scanned} / {progress.total} IP kontrol edildi
+                </Text>
               </View>
+              {/* İlerleme yüzdesi */}
+              <Text style={styles.scanningPct}>{progressPct}%</Text>
             </View>
           )}
 
-          {/* Cihaz bulununca isim giriş formu */}
+          {/* Tarama aktifken ilerleme çubuğu */}
+          {scanning && (
+            <View style={styles.progressTrack}>
+              <View style={[styles.progressFill, { width: `${progressPct}%` }]} />
+            </View>
+          )}
+
+          {/* ── Cihaz bulununca isim formu ── */}
           {foundIp && !scanning && (
             <View style={styles.foundCard}>
-
-              {/* Bulunan IP */}
               <View style={styles.foundHeader}>
                 <View style={styles.foundDot} />
                 <Text style={styles.foundLabel}>CİHAZ BULUNDU</Text>
               </View>
               <Text style={styles.foundIp}>{foundIp}</Text>
               <View style={styles.dividerLine} />
-
-              {/* İsim input — klavye açılınca ScrollView sayesinde görünür kalır */}
               <Text style={styles.fieldLabel}>CİHAZ ADI</Text>
               <TextInput
                 value={deviceName}
@@ -146,8 +161,6 @@ export default function ScanScreen({ onDeviceAdded, onBack }: Props) {
                 onSubmitEditing={handleSave}
                 style={styles.nameInput}
               />
-
-              {/* Kaydet butonu */}
               <TouchableOpacity
                 onPress={handleSave}
                 disabled={!deviceName.trim() || saving}
@@ -164,11 +177,10 @@ export default function ScanScreen({ onDeviceAdded, onBack }: Props) {
                   {saving ? '[ KAYDEDİLİYOR... ]' : '[ KAYDET ve BAĞLAN ]'}
                 </Text>
               </TouchableOpacity>
-
             </View>
           )}
 
-          {/* Tarama butonu — cihaz bulunmadan önce gösterilir */}
+          {/* ── Tarama butonu ── */}
           {!foundIp && (
             <>
               <View style={styles.dividerRow}>
@@ -176,7 +188,6 @@ export default function ScanScreen({ onDeviceAdded, onBack }: Props) {
                 <Text style={styles.dividerLabel}>AKSİYON</Text>
                 <View style={styles.dividerLineRow} />
               </View>
-
               <TouchableOpacity
                 onPress={startScan}
                 disabled={scanning}
@@ -201,7 +212,7 @@ export default function ScanScreen({ onDeviceAdded, onBack }: Props) {
         </ScrollView>
       </KeyboardAvoidingView>
 
-      {/* Footer — klavye dışında, her zaman altta */}
+      {/* Footer */}
       <View style={styles.footer}>
         <Text style={styles.footerText}>37.0° N · 35.3° E</Text>
         <View style={styles.footerSep} />
@@ -213,249 +224,60 @@ export default function ScanScreen({ onDeviceAdded, onBack }: Props) {
 }
 
 const styles = StyleSheet.create({
-  root: {
-    flex: 1,
-    backgroundColor: Colors.bg,
-  },
-  // KeyboardAvoidingView flex:1 ile kalan alanı doldurur
-  kavWrapper: {
-    flex: 1,
-    paddingHorizontal: Spacing.xl,
-    paddingTop: Spacing.lg,
-  },
-  scrollContent: {
-    flexGrow: 1,
-    justifyContent: 'center',
-    gap: Spacing.xl,
-    paddingBottom: Spacing.xl,
-  },
+  root: { flex: 1, backgroundColor: Colors.bg },
+  kavWrapper: { flex: 1, paddingHorizontal: Spacing.xl, paddingTop: Spacing.lg },
+  scrollContent: { flexGrow: 1, justifyContent: 'center', gap: Spacing.xl, paddingBottom: Spacing.xl },
 
-  // ── Header ──────────────────────────────────────────────────────
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingTop: Spacing.lg,
-  },
-  backBtn:   { minWidth: 60 },
-  backText: {
-    fontFamily: Fonts.mono,
-    fontSize: 10,
-    letterSpacing: 2,
-    color: Colors.text2,
-  },
-  headerBrand: {
-    fontFamily: Fonts.mono,
-    fontSize: 10,
-    letterSpacing: 4,
-    color: Colors.text2,
-  },
-  headerRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.sm,
-    minWidth: 60,
-    justifyContent: 'flex-end',
-  },
+  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingTop: Spacing.lg },
+  backBtn: { minWidth: 60 },
+  backText: { fontFamily: Fonts.mono, fontSize: 10, letterSpacing: 2, color: Colors.text2 },
+  headerBrand: { fontFamily: Fonts.mono, fontSize: 10, letterSpacing: 4, color: Colors.text2 },
+  headerRight: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, minWidth: 60, justifyContent: 'flex-end' },
   statusDot: { width: 6, height: 6, borderRadius: 999 },
-  headerMeta: {
-    fontFamily: Fonts.mono,
-    fontSize: 10,
-    letterSpacing: 2,
-    color: Colors.text3,
-  },
-  headerDivider: {
-    height: StyleSheet.hairlineWidth,
-    backgroundColor: Colors.border,
-    marginTop: Spacing.md,
-  },
+  headerMeta: { fontFamily: Fonts.mono, fontSize: 10, letterSpacing: 2, color: Colors.text3 },
+  headerDivider: { height: StyleSheet.hairlineWidth, backgroundColor: Colors.border, marginTop: Spacing.md },
 
-  // ── İçerik ──────────────────────────────────────────────────────
   titleBlock: { gap: Spacing.sm },
-  titleEyebrow: {
-    fontFamily: Fonts.mono,
-    fontSize: 10,
-    letterSpacing: 4,
-    color: Colors.cyan,
-  },
-  titleMain: {
-    fontFamily: Fonts.sans,
-    fontSize: 42,
-    lineHeight: 48,
-    letterSpacing: -0.5,
-    color: Colors.text,
-    fontWeight: '300',
-  },
-  titleDesc: {
-    fontFamily: Fonts.sans,
-    fontSize: 13,
-    color: Colors.text2,
-    lineHeight: 20,
-    marginTop: Spacing.xs,
-  },
-  scanningCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.md,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    borderRadius: Radius.sm,
-    backgroundColor: Colors.bg3,
-    paddingHorizontal: Spacing.lg,
-    paddingVertical: Spacing.md,
-  },
-  scanningTextGroup: { gap: 2 },
-  scanningLabel: {
-    fontFamily: Fonts.mono,
-    fontSize: 11,
-    letterSpacing: 3,
-    color: Colors.cyan,
-  },
-  scanningSubLabel: {
-    fontFamily: Fonts.mono,
-    fontSize: 10,
-    letterSpacing: 2,
-    color: Colors.text3,
-  },
+  titleEyebrow: { fontFamily: Fonts.mono, fontSize: 10, letterSpacing: 4, color: Colors.cyan },
+  titleMain: { fontFamily: Fonts.sans, fontSize: 42, lineHeight: 48, letterSpacing: -0.5, color: Colors.text, fontWeight: '300' },
+  titleDesc: { fontFamily: Fonts.sans, fontSize: 13, color: Colors.text2, lineHeight: 20, marginTop: Spacing.xs },
+
+  // Tarama kartı
+  scanningCard: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md, borderWidth: 1, borderColor: Colors.border, borderRadius: Radius.sm, backgroundColor: Colors.bg3, paddingHorizontal: Spacing.lg, paddingVertical: Spacing.md },
+  scanningTextGroup: { flex: 1, gap: 2 },
+  scanningLabel: { fontFamily: Fonts.mono, fontSize: 11, letterSpacing: 3, color: Colors.cyan },
+  scanningSubLabel: { fontFamily: Fonts.mono, fontSize: 10, letterSpacing: 1, color: Colors.text3 },
+  scanningPct: { fontFamily: Fonts.mono, fontSize: 14, letterSpacing: 2, color: Colors.cyan },
+
+  // İlerleme çubuğu
+  progressTrack: { height: 2, backgroundColor: Colors.border, borderRadius: 1, overflow: 'hidden' },
+  progressFill: { height: '100%', backgroundColor: Colors.cyan, borderRadius: 1 },
 
   // Bulunan cihaz kartı
-  foundCard: {
-    borderWidth: 1,
-    borderColor: Colors.cyan2,
-    borderRadius: Radius.md,
-    backgroundColor: Colors.cyanAlpha,
-    padding: Spacing.lg,
-    gap: Spacing.md,
-  },
-  foundHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.sm,
-  },
-  foundDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 999,
-    backgroundColor: Colors.cyan,
-  },
-  foundLabel: {
-    fontFamily: Fonts.mono,
-    fontSize: 9,
-    letterSpacing: 3,
-    color: Colors.cyan,
-  },
-  foundIp: {
-    fontFamily: Fonts.mono,
-    fontSize: 18,
-    letterSpacing: 2,
-    color: Colors.text,
-  },
-  dividerLine: {
-    height: StyleSheet.hairlineWidth,
-    backgroundColor: Colors.border,
-  },
-  fieldLabel: {
-    fontFamily: Fonts.mono,
-    fontSize: 9,
-    letterSpacing: 3,
-    color: Colors.text3,
-  },
-  nameInput: {
-    backgroundColor: Colors.bg2,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    borderRadius: Radius.sm,
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.sm,
-    fontFamily: Fonts.mono,
-    fontSize: 14,
-    letterSpacing: 1,
-    color: Colors.text,
-  },
-  saveBtn: {
-    borderWidth: 1,
-    borderColor: Colors.cyan2,
-    borderRadius: Radius.sm,
-    backgroundColor: Colors.cyanAlpha,
-    paddingVertical: Spacing.md,
-    alignItems: 'center',
-  },
-  saveBtnDisabled: {
-    borderColor: Colors.border,
-    backgroundColor: Colors.bg3,
-  },
-  saveBtnText: {
-    fontFamily: Fonts.mono,
-    fontSize: 12,
-    letterSpacing: 2,
-    color: Colors.cyan,
-  },
+  foundCard: { borderWidth: 1, borderColor: Colors.cyan2, borderRadius: Radius.md, backgroundColor: Colors.cyanAlpha, padding: Spacing.lg, gap: Spacing.md },
+  foundHeader: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
+  foundDot: { width: 6, height: 6, borderRadius: 999, backgroundColor: Colors.cyan },
+  foundLabel: { fontFamily: Fonts.mono, fontSize: 9, letterSpacing: 3, color: Colors.cyan },
+  foundIp: { fontFamily: Fonts.mono, fontSize: 18, letterSpacing: 2, color: Colors.text },
+  dividerLine: { height: StyleSheet.hairlineWidth, backgroundColor: Colors.border },
+  fieldLabel: { fontFamily: Fonts.mono, fontSize: 9, letterSpacing: 3, color: Colors.text3 },
+  nameInput: { backgroundColor: Colors.bg2, borderWidth: 1, borderColor: Colors.border, borderRadius: Radius.sm, paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm, fontFamily: Fonts.mono, fontSize: 14, letterSpacing: 1, color: Colors.text },
+  saveBtn: { borderWidth: 1, borderColor: Colors.cyan2, borderRadius: Radius.sm, backgroundColor: Colors.cyanAlpha, paddingVertical: Spacing.md, alignItems: 'center' },
+  saveBtnDisabled: { borderColor: Colors.border, backgroundColor: Colors.bg3 },
+  saveBtnText: { fontFamily: Fonts.mono, fontSize: 12, letterSpacing: 2, color: Colors.cyan },
   saveBtnTextDisabled: { color: Colors.text3 },
-
   rescanBtn: { alignSelf: 'center', paddingVertical: Spacing.sm },
-  rescanText: {
-    fontFamily: Fonts.mono,
-    fontSize: 11,
-    letterSpacing: 2,
-    color: Colors.text2,
-  },
-  dividerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.md,
-  },
-  dividerLineRow: {
-    flex: 1,
-    height: StyleSheet.hairlineWidth,
-    backgroundColor: Colors.border,
-  },
-  dividerLabel: {
-    fontFamily: Fonts.mono,
-    fontSize: 8,
-    letterSpacing: 3,
-    color: Colors.text3,
-  },
-  primaryBtn: {
-    borderWidth: 1,
-    borderColor: Colors.cyan2,
-    borderRadius: Radius.sm,
-    backgroundColor: Colors.cyanAlpha,
-    paddingHorizontal: Spacing.lg,
-    paddingVertical: Spacing.md,
-    gap: 2,
-  },
-  primaryBtnLabel: {
-    fontFamily: Fonts.mono,
-    fontSize: 8,
-    letterSpacing: 3,
-    color: Colors.cyan2,
-  },
-  primaryBtnText: {
-    fontFamily: Fonts.mono,
-    fontSize: 15,
-    letterSpacing: 2,
-    color: Colors.cyan,
-  },
+  rescanText: { fontFamily: Fonts.mono, fontSize: 11, letterSpacing: 2, color: Colors.text2 },
+  dividerRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md },
+  dividerLineRow: { flex: 1, height: StyleSheet.hairlineWidth, backgroundColor: Colors.border },
+  dividerLabel: { fontFamily: Fonts.mono, fontSize: 8, letterSpacing: 3, color: Colors.text3 },
+  primaryBtn: { borderWidth: 1, borderColor: Colors.cyan2, borderRadius: Radius.sm, backgroundColor: Colors.cyanAlpha, paddingHorizontal: Spacing.lg, paddingVertical: Spacing.md, gap: 2 },
+  primaryBtnLabel: { fontFamily: Fonts.mono, fontSize: 8, letterSpacing: 3, color: Colors.cyan2 },
+  primaryBtnText: { fontFamily: Fonts.mono, fontSize: 15, letterSpacing: 2, color: Colors.cyan },
   btnDisabled: { borderColor: Colors.border, backgroundColor: Colors.bg3 },
   btnTextDisabled: { color: Colors.text3 },
 
-  // Footer SafeAreaView'in içinde ama KAV dışında — klavyeden etkilenmez
-  footer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: Spacing.md,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: Colors.border3,
-    paddingTop: Spacing.md,
-    paddingBottom: Spacing.md,
-    paddingHorizontal: Spacing.xl,
-  },
-  footerText: {
-    fontFamily: Fonts.mono,
-    fontSize: 9,
-    letterSpacing: 2.5,
-    color: Colors.text3,
-  },
+  footer: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: Spacing.md, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: Colors.border3, paddingTop: Spacing.md, paddingBottom: Spacing.md, paddingHorizontal: Spacing.xl },
+  footerText: { fontFamily: Fonts.mono, fontSize: 9, letterSpacing: 2.5, color: Colors.text3 },
   footerSep: { width: 3, height: 3, borderRadius: 2, backgroundColor: Colors.border2 },
 });
