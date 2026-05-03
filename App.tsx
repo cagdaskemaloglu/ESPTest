@@ -3,18 +3,14 @@
  * Kök bileşen — sadece router + global state.
  *
  * Ekran akışı:
- *   Uygulama açılır
- *     ├── Kayıtlı cihaz var  → ControlScreen (son kullanılan)
- *     └── Kayıtlı cihaz yok → StartScreen
- *
- *   StartScreen  → SetupScreen → ScanScreen
- *   StartScreen  → ScanScreen
- *   ScanScreen   → ControlScreen (yeni cihaz kaydedildi)
- *
- *   ControlScreen "⏱" → AutomationScreen
- *   ControlScreen "+" → ScanScreen
- *   ControlScreen cihaz adı → DeviceListScreen
- *   DeviceListScreen cihaz seç → ControlScreen
+ *   loading      → AsyncStorage kontrol
+ *   start        → kurulum veya tarama
+ *   setup        → ESP32 WiFi yapılandırma
+ *   scan         → ağ tarama / cihaz ekleme
+ *   control      → ana kontrol ekranı
+ *   deviceList   → kayıtlı cihazlar
+ *   automation   → zamanlayıcı kuralları
+ *   presets      → sahneler / efektler   ← YENİ
  */
 
 import { useEffect, useState } from 'react';
@@ -23,6 +19,7 @@ import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import AutomationScreen from './screens/AutomationScreen';
 import ControlScreen from './screens/ControlScreen';
 import DeviceListScreen from './screens/DeviceListScreen';
+import PresetsScreen from './screens/PresetsScreen';
 import ScanScreen from './screens/ScanScreen';
 import SetupScreen from './screens/SetupScreen';
 import StartScreen from './screens/StartScreen';
@@ -42,33 +39,29 @@ type Step =
   | 'scan'
   | 'control'
   | 'deviceList'
-  | 'automation';
+  | 'automation'
+  | 'presets';
 
 export default function App() {
-  const [step, setStep]               = useState<Step>('loading');
+  const [step, setStep]                 = useState<Step>('loading');
   const [activeDevice, setActiveDevice] = useState<Device | null>(null);
 
-  // Uygulama açılınca kayıtlı cihazları kontrol et
-  useEffect(() => {
-    initApp();
-  }, []);
+  useEffect(() => { initApp(); }, []);
 
   const initApp = async () => {
-    const devices  = await getDevices();
-    const lastId   = await getLastDeviceId();
+    const devices = await getDevices();
+    const lastId  = await getLastDeviceId();
 
     if (devices.length === 0) {
       setStep('start');
       return;
     }
 
-    // Son kullanılan cihazı bul, yoksa ilk cihazı seç
     const last = devices.find((d) => d.id === lastId) ?? devices[0];
     setActiveDevice(last);
     setStep('control');
   };
 
-  // Cihaz seçilince state + AsyncStorage güncelle
   const selectDevice = async (device: Device) => {
     setActiveDevice(device);
     await saveLastDeviceId(device.id);
@@ -138,14 +131,25 @@ export default function App() {
     );
   }
 
+  // ── Sahneler / Presetler ───────────────────────────────────────
+  if (step === 'presets' && activeDevice) {
+    return (
+      <PresetsScreen
+        device={activeDevice}
+        onBack={() => setStep('control')}
+      />
+    );
+  }
+
   // ── Ana kontrol ekranı ─────────────────────────────────────────
   if (step === 'control' && activeDevice) {
     return (
       <ControlScreen
         device={activeDevice}
-        onOpenList={()       => setStep('deviceList')}
-        onAddDevice={()      => setStep('scan')}
-        onOpenAutomation={() => setStep('automation')}
+        onOpenList={()        => setStep('deviceList')}
+        onAddDevice={()       => setStep('scan')}
+        onOpenAutomation={()  => setStep('automation')}
+        onOpenPresets={()     => setStep('presets')}
       />
     );
   }

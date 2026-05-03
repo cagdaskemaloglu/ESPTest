@@ -2,10 +2,17 @@
  * screens/ControlScreen.tsx
  * ESP32 WS2812B şerit LED kontrol ekranı.
  *
+ * Header butonları:
+ *   cihaz adı → DeviceListScreen
+ *   🎬        → PresetsScreen
+ *   ⏱         → AutomationScreen
+ *   +          → ScanScreen
+ *
  * Bağlantı durumu:
- *   useConnectionStatus hook'u 5 saniyede bir /whoami ping atar.
- *   Header'da durum noktası: gri=kontrol ediliyor, yeşil=online, kırmızı=offline
- *   Offline iken toggle/slider/color değişikliklerinde hata banner'ı gösterilir.
+ *   useConnectionStatus hook — 5sn ping
+ *   Online: yeşil nokta + ms
+ *   Offline: kırmızı nokta + banner
+ *   Yeniden bağlanınca otomatik state sync
  */
 
 import Slider from '@react-native-community/slider';
@@ -37,39 +44,51 @@ type Props = {
   onOpenList:       () => void;
   onAddDevice:      () => void;
   onOpenAutomation: () => void;
+  onOpenPresets:    () => void;  // ← YENİ
 };
 
 function rgbToHex(r: number, g: number, b: number) {
   return '#' + [r, g, b].map((v) => v.toString(16).padStart(2, '0')).join('');
 }
 
-export default function ControlScreen({ device, onOpenList, onAddDevice, onOpenAutomation }: Props) {
+export default function ControlScreen({
+  device, onOpenList, onAddDevice, onOpenAutomation, onOpenPresets,
+}: Props) {
   const [isOn, setIsOn]             = useState(false);
   const [brightness, setBrightness] = useState(Math.round((device.brightness ?? 255) / 255 * 100));
   const [color, setColor]           = useState({ r: device.color?.r ?? 255, g: device.color?.g ?? 255, b: device.color?.b ?? 255 });
   const [pickerOpen, setPickerOpen] = useState(false);
-  // Hata banner mesajı — offline iken işlem yapılmaya çalışılınca gösterilir
   const [errorMsg, setErrorMsg]     = useState<string | null>(null);
-  const errorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Aktif efekt göstergesi — efekt modundayken header'da gösterilir
+  const [activeEffect, setActiveEffect] = useState<string | null>(null);
 
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const anim        = useRef(new Animated.Value(0)).current;
-  const pulse       = useRef(new Animated.Value(1)).current;
-  const pulseRef    = useRef<Animated.CompositeAnimation | null>(null);
+  const debounceRef   = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const errorTimer    = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const anim          = useRef(new Animated.Value(0)).current;
+  const pulse         = useRef(new Animated.Value(1)).current;
+  const pulseRef      = useRef<Animated.CompositeAnimation | null>(null);
+  const prevStatus    = useRef<string>('checking');
 
-  // Bağlantı durumu hook'u — 5sn'de bir ping
   const { status: connStatus, latency } = useConnectionStatus(device.ip);
 
-  // Hata mesajını 3 saniye sonra otomatik gizle
+  // Yeniden bağlanınca state sync et
+  useEffect(() => {
+    if (prevStatus.current !== 'online' && connStatus === 'online') {
+      syncState();
+    }
+    prevStatus.current = connStatus;
+  }, [connStatus]);
+
   const showError = (msg: string) => {
     setErrorMsg(msg);
-    if (errorTimerRef.current) clearTimeout(errorTimerRef.current);
-    errorTimerRef.current = setTimeout(() => setErrorMsg(null), 3000);
+    if (errorTimer.current) clearTimeout(errorTimer.current);
+    errorTimer.current = setTimeout(() => setErrorMsg(null), 3000);
   };
 
   useEffect(() => {
     setIsOn(false);
     setPickerOpen(false);
+    setActiveEffect(null);
     setBrightness(Math.round((device.brightness ?? 255) / 255 * 100));
     setColor({ r: device.color?.r ?? 255, g: device.color?.g ?? 255, b: device.color?.b ?? 255 });
     anim.setValue(0);
@@ -82,9 +101,10 @@ export default function ControlScreen({ device, onOpenList, onAddDevice, onOpenA
     try {
       const res  = await fetch(`http://${device.ip}/led/state`);
       const data = await res.json();
-      if (data.on !== undefined)         setIsOn(data.on);
-      if (data.r  !== undefined)         setColor({ r: data.r, g: data.g, b: data.b });
+      if (data.on         !== undefined) setIsOn(data.on);
+      if (data.r          !== undefined) setColor({ r: data.r, g: data.g, b: data.b });
       if (data.brightness !== undefined) setBrightness(Math.round(data.brightness / 255 * 100));
+      if (data.effect     !== undefined) setActiveEffect(data.effect === 'off' ? null : data.effect);
     } catch {}
   };
 
@@ -97,12 +117,10 @@ export default function ControlScreen({ device, onOpenList, onAddDevice, onOpenA
     }).start();
 
     if (isOn) {
-      pulseRef.current = Animated.loop(
-        Animated.sequence([
-          Animated.timing(pulse, { toValue: 1.06, duration: 2200, easing: Easing.inOut(Easing.sin), useNativeDriver: false }),
-          Animated.timing(pulse, { toValue: 0.97, duration: 2200, easing: Easing.inOut(Easing.sin), useNativeDriver: false }),
-        ])
-      );
+      pulseRef.current = Animated.loop(Animated.sequence([
+        Animated.timing(pulse, { toValue: 1.06, duration: 2200, easing: Easing.inOut(Easing.sin), useNativeDriver: false }),
+        Animated.timing(pulse, { toValue: 0.97, duration: 2200, easing: Easing.inOut(Easing.sin), useNativeDriver: false }),
+      ]));
       pulseRef.current.start();
     } else {
       pulseRef.current?.stop();
@@ -124,6 +142,7 @@ export default function ControlScreen({ device, onOpenList, onAddDevice, onOpenA
     try {
       await fetch(`http://${device.ip}${path}`);
       setIsOn(!isOn);
+      if (isOn) setActiveEffect(null); // Kapatınca efekt sıfırla
     } catch { showError('Bağlantı hatası'); }
   };
 
@@ -143,24 +162,16 @@ export default function ControlScreen({ device, onOpenList, onAddDevice, onOpenA
     const esp = Math.round(pct / 100 * 255);
     if (debounceRef.current) clearTimeout(debounceRef.current);
     if (connStatus !== 'offline') {
-      try { await fetch(`http://${device.ip}/led/brightness?value=${esp}`); }
-      catch {}
+      try { await fetch(`http://${device.ip}/led/brightness?value=${esp}`); } catch {}
     }
     await saveBrightness(device.id, esp);
   };
 
   const handleColorChange = async (r: number, g: number, b: number) => {
     setColor({ r, g, b });
-    try { await fetch(`http://${device.ip}/led/color?r=${r}&g=${g}&b=${b}`); }
-    catch {}
+    try { await fetch(`http://${device.ip}/led/color?r=${r}&g=${g}&b=${b}`); } catch {}
     await saveColor(device.id, { r, g, b });
   };
-
-  // ── Bağlantı durum noktası rengi ──────────────────────────────────────────
-  const connDotColor =
-    connStatus === 'online'   ? Colors.green :
-    connStatus === 'offline'  ? Colors.red   :
-    Colors.text3; // checking
 
   // ── Interpolasyonlar ──────────────────────────────────────────────────────
   const colorCss      = `rgb(${color.r},${color.g},${color.b})`;
@@ -172,11 +183,17 @@ export default function ControlScreen({ device, onOpenList, onAddDevice, onOpenA
   const ringBg        = anim.interpolate({ inputRange: [0, 1], outputRange: [Colors.bg3, 'rgba(0,212,255,0.04)'] });
   const bulbBtnBg     = anim.interpolate({ inputRange: [0, 1], outputRange: [Colors.bg4, 'rgba(0,212,255,0.06)'] });
   const toggleBg      = anim.interpolate({ inputRange: [0, 1], outputRange: [Colors.bg3, 'rgba(0,212,255,0.08)'] });
+  const dotColor      = anim.interpolate({ inputRange: [0, 1], outputRange: [Colors.text3, Colors.cyan] });
   const shadowOpacity = anim.interpolate({ inputRange: [0, 1], outputRange: [0, 0.8] });
   const shadowRadius  = anim.interpolate({ inputRange: [0, 1], outputRange: [0, 36] });
   const labelOffOp    = anim.interpolate({ inputRange: [0, 0.4], outputRange: [1, 0], extrapolate: 'clamp' });
   const labelOnOp     = anim.interpolate({ inputRange: [0.6, 1], outputRange: [0, 1], extrapolate: 'clamp' });
   const sliderOp      = anim.interpolate({ inputRange: [0, 1], outputRange: [0.4, 1] });
+
+  const connDotColor =
+    connStatus === 'online'  ? Colors.green :
+    connStatus === 'offline' ? Colors.red   :
+    Colors.text3;
 
   return (
     <Animated.View style={[styles.root, { backgroundColor: bgColor }]}>
@@ -192,15 +209,23 @@ export default function ControlScreen({ device, onOpenList, onAddDevice, onOpenA
           <Text style={styles.deviceName} numberOfLines={1}>{device.name} ›</Text>
         </TouchableOpacity>
         <View style={styles.headerRight}>
-          {/* Bağlantı durum noktası — online/offline/checking */}
-          <View style={[styles.statusDot, { backgroundColor: connDotColor }]} />
-          {/* Gecikme (ms) — sadece online iken göster */}
+          {/* Bağlantı durumu */}
+          <View style={[styles.connDot, { backgroundColor: connDotColor }]} />
           {connStatus === 'online' && latency !== null && (
             <Text style={styles.latencyText}>{latency}ms</Text>
           )}
           {connStatus === 'offline' && (
-            <Text style={styles.offlineText}>ÇEVRIMDIŞI</Text>
+            <Text style={styles.offlineText}>OFFLINE</Text>
           )}
+          {/* Aktif efekt göstergesi */}
+          {activeEffect && (
+            <View style={styles.effectBadge}>
+              <Text style={styles.effectBadgeText}>FX</Text>
+            </View>
+          )}
+          <TouchableOpacity onPress={onOpenPresets} style={styles.headerBtn}>
+            <Text style={styles.headerBtnText}>🎬</Text>
+          </TouchableOpacity>
           <TouchableOpacity onPress={onOpenAutomation} style={styles.headerBtn}>
             <Text style={styles.headerBtnText}>⏱</Text>
           </TouchableOpacity>
@@ -215,9 +240,15 @@ export default function ControlScreen({ device, onOpenList, onAddDevice, onOpenA
       <View style={styles.ipRow}>
         <Text style={styles.ipLabel}>BAĞLANTI //</Text>
         <Text style={styles.ipValue}>{device.ip}</Text>
+        {activeEffect && (
+          <>
+            <Text style={styles.ipLabel}> · EFEKT //</Text>
+            <Text style={[styles.ipValue, { color: Colors.purple }]}>{activeEffect.toUpperCase()}</Text>
+          </>
+        )}
       </View>
 
-      {/* ── Hata banner'ı ── */}
+      {/* Hata banner */}
       {errorMsg && (
         <View style={styles.errorBanner}>
           <Text style={styles.errorBannerText}>⚠ {errorMsg}</Text>
@@ -253,12 +284,16 @@ export default function ControlScreen({ device, onOpenList, onAddDevice, onOpenA
               </TouchableOpacity>
             </Animated.View>
           </Animated.View>
+
           <View style={styles.stateRow}>
             <Animated.Text style={[styles.stateOff, { opacity: labelOffOp }]}>○  KAPALI</Animated.Text>
-            <Animated.Text style={[styles.stateOn, { opacity: labelOnOp, color: colorCss }]}>●  AÇIK</Animated.Text>
+            <Animated.Text style={[styles.stateOn, { opacity: labelOnOp, color: colorCss }]}>
+              {activeEffect ? `● ${activeEffect.toUpperCase()}` : '●  AÇIK'}
+            </Animated.Text>
           </View>
+
           <View style={styles.progressTrack}>
-            <Animated.View style={[styles.progressFill, { width: progressWidth, backgroundColor: colorCss, shadowColor: colorCss }]} />
+            <Animated.View style={[styles.progressFill, { width: progressWidth, backgroundColor: activeEffect ? Colors.purple : colorCss, shadowColor: colorCss }]} />
           </View>
         </View>
 
@@ -306,14 +341,10 @@ export default function ControlScreen({ device, onOpenList, onAddDevice, onOpenA
             </View>
             <Text style={[styles.colorChevron, pickerOpen && styles.colorChevronOpen]}>›</Text>
           </TouchableOpacity>
-
           {pickerOpen && (
             <View style={styles.colorPanel}>
               <View style={styles.colorPanelDivider} />
-              <ColorPicker
-                initialR={color.r} initialG={color.g} initialB={color.b}
-                onChange={handleColorChange}
-              />
+              <ColorPicker initialR={color.r} initialG={color.g} initialB={color.b} onChange={handleColorChange} />
             </View>
           )}
         </View>
@@ -340,20 +371,19 @@ const styles = StyleSheet.create({
   deviceNameLabel: { fontFamily: Fonts.mono, fontSize: 8, letterSpacing: 3, color: Colors.text3 },
   deviceName: { fontFamily: Fonts.sans, fontSize: 16, color: Colors.text, fontWeight: '400' },
   headerRight: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
-  statusDot: { width: 6, height: 6, borderRadius: 999 },
+  connDot: { width: 6, height: 6, borderRadius: 999 },
   latencyText: { fontFamily: Fonts.mono, fontSize: 9, letterSpacing: 1, color: Colors.green },
   offlineText: { fontFamily: Fonts.mono, fontSize: 9, letterSpacing: 2, color: Colors.red },
+  effectBadge: { paddingHorizontal: 5, paddingVertical: 2, borderRadius: Radius.sm, borderWidth: 1, borderColor: Colors.purple, backgroundColor: Colors.purpleAlpha },
+  effectBadgeText: { fontFamily: Fonts.mono, fontSize: 8, letterSpacing: 2, color: Colors.purple },
   headerBtn: { width: 28, height: 28, borderRadius: Radius.sm, borderWidth: 1, borderColor: Colors.border2, backgroundColor: Colors.bg3, alignItems: 'center', justifyContent: 'center' },
-  headerBtnText: { fontFamily: Fonts.mono, fontSize: 14, color: Colors.cyan, lineHeight: 18 },
+  headerBtnText: { fontFamily: Fonts.mono, fontSize: 13, color: Colors.cyan, lineHeight: 17 },
   headerDivider: { height: StyleSheet.hairlineWidth, backgroundColor: Colors.border, marginTop: Spacing.md, marginHorizontal: Spacing.xl },
-  ipRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, marginTop: Spacing.md, paddingHorizontal: Spacing.xl },
+  ipRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, marginTop: Spacing.md, paddingHorizontal: Spacing.xl, flexWrap: 'wrap' },
   ipLabel: { fontFamily: Fonts.mono, fontSize: 10, letterSpacing: 3, color: Colors.text3 },
   ipValue: { fontFamily: Fonts.mono, fontSize: 12, letterSpacing: 1.5, color: Colors.cyan },
-
-  // Hata banner
   errorBanner: { marginHorizontal: Spacing.xl, marginTop: Spacing.sm, paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm, backgroundColor: Colors.redAlpha, borderWidth: 1, borderColor: Colors.red, borderRadius: Radius.sm },
   errorBannerText: { fontFamily: Fonts.mono, fontSize: 11, letterSpacing: 1, color: Colors.red },
-
   scroll: { flex: 1 },
   scrollContent: { paddingHorizontal: Spacing.xl, paddingBottom: Spacing.xl, gap: Spacing.xl, paddingTop: Spacing.lg },
   lampSection: { alignItems: 'center', gap: Spacing.lg },
@@ -369,12 +399,12 @@ const styles = StyleSheet.create({
   ray: { position: 'absolute', width: 1, height: 16, borderRadius: 1, shadowOffset: { width: 0, height: 0 }, shadowOpacity: 1, shadowRadius: 4, elevation: 2 },
   stateRow: { height: 24, alignItems: 'center', justifyContent: 'center' },
   stateOff: { position: 'absolute', fontFamily: Fonts.mono, fontSize: 11, letterSpacing: 4, color: Colors.text3 },
-  stateOn:  { position: 'absolute', fontFamily: Fonts.mono, fontSize: 11, letterSpacing: 4 },
+  stateOn: { position: 'absolute', fontFamily: Fonts.mono, fontSize: 11, letterSpacing: 4 },
   progressTrack: { width: 100, height: 1, backgroundColor: Colors.border, overflow: 'hidden' },
   progressFill: { height: '100%', shadowOffset: { width: 0, height: 0 }, shadowOpacity: 1, shadowRadius: 4, elevation: 2 },
   toggleBtn: { width: '100%', height: 50, borderWidth: 1, borderRadius: Radius.sm, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
   toggleTextOff: { position: 'absolute', fontFamily: Fonts.mono, fontSize: 14, letterSpacing: 3, color: Colors.text2 },
-  toggleTextOn:  { position: 'absolute', fontFamily: Fonts.mono, fontSize: 14, letterSpacing: 3 },
+  toggleTextOn: { position: 'absolute', fontFamily: Fonts.mono, fontSize: 14, letterSpacing: 3 },
   sliderSection: { gap: 4 },
   sliderHeader: { flexDirection: 'row', justifyContent: 'space-between' },
   sliderLabel: { fontFamily: Fonts.mono, fontSize: 9, letterSpacing: 3, color: Colors.text3 },
