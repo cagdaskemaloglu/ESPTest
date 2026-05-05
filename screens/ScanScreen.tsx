@@ -1,14 +1,24 @@
 /**
  * screens/ScanScreen.tsx
- * Paralel ağ taraması ile ESP32 cihazı bulan ekran.
+ * Yerel ağda ESP32 cihazlarını bulan ve ekleyen ekran.
  *
- * onProgress callback'i ile tarama ilerlemesi gösterilir.
- * Cihaz bulununca isim giriş formu açılır ve kaydedilir.
+ * Önceki davranış:
+ *   İlk bulunan cihaz için direkt isim formu açılıyordu.
+ *   Tarama duruyor, diğer cihazlar görünmüyordu.
+ *
+ * Yeni davranış:
+ *   Tüm ağ taranır, bulunan TÜM cihazlar listelenir.
+ *   Her bulunan cihaz tarama bitmeden anında listeye eklenir.
+ *   Zaten kayıtlı cihazlar "KAYITLI" rozeti ile işaretlenir.
+ *   Kullanıcı listeden bir cihaz seçer:
+ *     → Yeni cihaz: isim giriş formu açılır, kaydedilir
+ *     → Kayıtlı cihaz: "Zaten kayıtlı, bağlanmak ister misin?" onayı
  */
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   KeyboardAvoidingView,
   Platform,
   SafeAreaView,
@@ -19,56 +29,104 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { addDevice } from '../services/deviceStorage';
-import { scanNetwork } from '../services/networkScanner';
+import { addDevice, getDevices } from '../services/deviceStorage';
+import { FoundDevice, scanNetwork } from '../services/networkScanner';
 import { Colors, Fonts, Radius, Spacing } from '../theme/colors';
 import { Device } from '../types/Device';
 
 type Props = {
-  onDeviceAdded: (device: Device) => void;
-  onBack:        () => void;
+  onDeviceAdded:    (device: Device) => void; // Yeni cihaz kaydedildi → control'e geç
+  onDeviceSelected: (device: Device) => void; // Kayıtlı cihaz seçildi → control'e geç
+  onBack:           () => void;
 };
 
 const generateId = () =>
   `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
 
-export default function ScanScreen({ onDeviceAdded, onBack }: Props) {
-  const [scanning, setScanning]         = useState(false);
-  const [progress, setProgress]         = useState({ scanned: 0, total: 254 });
-  const [foundIp, setFoundIp]           = useState<string | null>(null);
-  const [deviceName, setDeviceName]     = useState('');
-  const [saving, setSaving]             = useState(false);
+export default function ScanScreen({ onDeviceAdded, onDeviceSelected, onBack }: Props) {
+  const [scanning, setScanning]           = useState(false);
+  const [progress, setProgress]           = useState({ scanned: 0, total: 254 });
+  const [foundDevices, setFoundDevices]   = useState<FoundDevice[]>([]);
+  const [registeredDevices, setRegistered] = useState<Device[]>([]);
+
+  // Seçili cihaz — isim formu için
+  const [selectedIP, setSelectedIP]   = useState<string | null>(null);
+  const [deviceName, setDeviceName]   = useState('');
+  const [saving, setSaving]           = useState(false);
+
+  const mountedRef = useRef(true);
+
+  // Kayıtlı cihazları yükle — hangileri zaten var bileceğiz
+  useEffect(() => {
+    getDevices().then(setRegistered);
+    return () => { mountedRef.current = false; };
+  }, []);
 
   const startScan = async () => {
     console.log('🚀 SCAN BAŞLADI');
     setScanning(true);
-    setFoundIp(null);
+    setFoundDevices([]);
+    setSelectedIP(null);
     setDeviceName('');
     setProgress({ scanned: 0, total: 254 });
 
-    await scanNetwork(
-      (ip) => {
-        setFoundIp(ip);
-        setScanning(false);
+    await scanNetwork({
+      onDeviceFound: (device) => {
+        if (!mountedRef.current) return;
+        // Bulunan cihazı anında listeye ekle (tarama devam ederken)
+        setFoundDevices((prev) => {
+          // Aynı IP tekrar gelirse ekleme
+          if (prev.some((d) => d.ip === device.ip)) return prev;
+          return [...prev, device];
+        });
       },
-      // onProgress: tarama ilerlemesini güncelle
-      (scanned, total) => {
+      onProgress: (scanned, total) => {
+        if (!mountedRef.current) return;
         setProgress({ scanned, total });
       },
-    );
+    });
 
-    setScanning(false);
+    if (mountedRef.current) setScanning(false);
     console.log('🏁 SCAN BİTTİ');
   };
 
+  // Kayıtlı cihazlarda bu IP var mı?
+  const findRegistered = (ip: string): Device | undefined =>
+    registeredDevices.find((d) => d.ip === ip);
+
+  // Listeden cihaz seç
+  const handleSelectDevice = (found: FoundDevice) => {
+    const existing = findRegistered(found.ip);
+
+    if (existing) {
+      // Zaten kayıtlı — onay sor
+      Alert.alert(
+        'Cihaz Zaten Kayıtlı',
+        `"${existing.name}" (${found.ip}) zaten listenizde.\nBu cihaza bağlanmak ister misiniz?`,
+        [
+          { text: 'İptal', style: 'cancel' },
+          {
+            text: 'Bağlan',
+            onPress: () => onDeviceSelected(existing),
+          },
+        ]
+      );
+    } else {
+      // Yeni cihaz — isim formu aç
+      setSelectedIP(found.ip);
+      setDeviceName('');
+    }
+  };
+
+  // Yeni cihazı kaydet
   const handleSave = async () => {
-    if (!foundIp || !deviceName.trim()) return;
+    if (!selectedIP || !deviceName.trim()) return;
     setSaving(true);
 
     const newDevice: Device = {
       id:         generateId(),
       name:       deviceName.trim(),
-      ip:         foundIp,
+      ip:         selectedIP,
       addedAt:    Date.now(),
       brightness: 255,
       color:      { r: 255, g: 255, b: 255 },
@@ -79,7 +137,12 @@ export default function ScanScreen({ onDeviceAdded, onBack }: Props) {
     onDeviceAdded(newDevice);
   };
 
-  // İlerleme yüzdesi
+  // İptal — isim formunu kapat, cihaz seçimine dön
+  const handleCancelForm = () => {
+    setSelectedIP(null);
+    setDeviceName('');
+  };
+
   const progressPct = progress.total > 0
     ? Math.round((progress.scanned / progress.total) * 100)
     : 0;
@@ -116,40 +179,119 @@ export default function ScanScreen({ onDeviceAdded, onBack }: Props) {
           <View style={styles.titleBlock}>
             <Text style={styles.titleEyebrow}>// TARAMA</Text>
             <Text style={styles.titleMain}>Cihaz{'\n'}Ekle</Text>
-            <Text style={styles.titleDesc}>Yerel ağda ESP32 cihazı aranıyor</Text>
+            <Text style={styles.titleDesc}>
+              Yerel ağdaki tüm ESP32 cihazları listelenir
+            </Text>
           </View>
 
           {/* ── Tarama göstergesi ── */}
           {scanning && (
-            <View style={styles.scanningCard}>
-              <ActivityIndicator color={Colors.cyan} size="small" />
-              <View style={styles.scanningTextGroup}>
-                <Text style={styles.scanningLabel}>AĞ TARANIYOR</Text>
-                <Text style={styles.scanningSubLabel}>
-                  {progress.scanned} / {progress.total} IP kontrol edildi
+            <>
+              <View style={styles.scanningCard}>
+                <ActivityIndicator color={Colors.cyan} size="small" />
+                <View style={styles.scanningTextGroup}>
+                  <Text style={styles.scanningLabel}>AĞ TARANIYOR</Text>
+                  <Text style={styles.scanningSubLabel}>
+                    {progress.scanned} / {progress.total} IP · {foundDevices.length} cihaz bulundu
+                  </Text>
+                </View>
+                <Text style={styles.scanningPct}>{progressPct}%</Text>
+              </View>
+
+              {/* İlerleme çubuğu */}
+              <View style={styles.progressTrack}>
+                <View style={[styles.progressFill, { width: `${progressPct}%` }]} />
+              </View>
+            </>
+          )}
+
+          {/* ── Bulunan cihazlar listesi ── */}
+          {foundDevices.length > 0 && !selectedIP && (
+            <View style={styles.deviceListSection}>
+
+              <View style={styles.dividerRow}>
+                <View style={styles.dividerLine} />
+                <Text style={styles.dividerLabel}>
+                  {scanning ? 'BULUNANLAR' : `${foundDevices.length} CİHAZ BULUNDU`}
                 </Text>
+                <View style={styles.dividerLine} />
               </View>
-              {/* İlerleme yüzdesi */}
-              <Text style={styles.scanningPct}>{progressPct}%</Text>
+
+              <View style={styles.deviceList}>
+                {foundDevices.map((device, idx) => {
+                  const existing  = findRegistered(device.ip);
+                  const isLast    = idx === foundDevices.length - 1;
+
+                  return (
+                    <TouchableOpacity
+                      key={device.ip}
+                      onPress={() => handleSelectDevice(device)}
+                      activeOpacity={0.75}
+                      style={[
+                        styles.deviceRow,
+                        !isLast && styles.deviceRowBorder,
+                        existing && styles.deviceRowRegistered,
+                      ]}
+                    >
+                      {/* Sol: durum noktası + bilgi */}
+                      <View style={styles.deviceRowLeft}>
+                        <View style={[styles.deviceDot, {
+                          backgroundColor: existing ? Colors.cyan : Colors.green,
+                        }]} />
+                        <View style={styles.deviceRowInfo}>
+                          <Text style={styles.deviceRowIp}>{device.ip}</Text>
+                          {existing ? (
+                            <Text style={[styles.deviceRowName, { color: Colors.cyan }]}>
+                              {existing.name}
+                            </Text>
+                          ) : (
+                            <Text style={styles.deviceRowNew}>Yeni cihaz — eklemek için bas</Text>
+                          )}
+                        </View>
+                      </View>
+
+                      {/* Sağ: kayıtlı rozeti veya ekle oku */}
+                      <View style={styles.deviceRowRight}>
+                        {existing ? (
+                          <View style={styles.registeredBadge}>
+                            <Text style={styles.registeredBadgeText}>KAYITLI</Text>
+                          </View>
+                        ) : (
+                          <Text style={styles.addArrow}>+</Text>
+                        )}
+                      </View>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+
             </View>
           )}
 
-          {/* Tarama aktifken ilerleme çubuğu */}
-          {scanning && (
-            <View style={styles.progressTrack}>
-              <View style={[styles.progressFill, { width: `${progressPct}%` }]} />
+          {/* ── Tarama bitti, hiç cihaz bulunamadı ── */}
+          {!scanning && foundDevices.length === 0 && progress.scanned > 0 && (
+            <View style={styles.emptyBox}>
+              <Text style={styles.emptyText}>Cihaz bulunamadı</Text>
+              <Text style={styles.emptySubText}>
+                ESP32'nin aynı WiFi ağında olduğundan emin ol
+              </Text>
             </View>
           )}
 
-          {/* ── Cihaz bulununca isim formu ── */}
-          {foundIp && !scanning && (
-            <View style={styles.foundCard}>
-              <View style={styles.foundHeader}>
-                <View style={styles.foundDot} />
-                <Text style={styles.foundLabel}>CİHAZ BULUNDU</Text>
+          {/* ── Yeni cihaz isim formu ── */}
+          {selectedIP && (
+            <View style={styles.nameForm}>
+
+              {/* Seçilen IP */}
+              <View style={styles.selectedIpRow}>
+                <View style={styles.selectedIpDot} />
+                <Text style={styles.selectedIpLabel}>SEÇİLEN CİHAZ</Text>
+                <Text style={styles.selectedIpValue}>{selectedIP}</Text>
               </View>
-              <Text style={styles.foundIp}>{foundIp}</Text>
-              <View style={styles.dividerLine} />
+
+              <View style={styles.nameDivider} />
+
+              {/* İsim giriş */}
               <Text style={styles.fieldLabel}>CİHAZ ADI</Text>
               <TextInput
                 value={deviceName}
@@ -161,6 +303,8 @@ export default function ScanScreen({ onDeviceAdded, onBack }: Props) {
                 onSubmitEditing={handleSave}
                 style={styles.nameInput}
               />
+
+              {/* Butonlar */}
               <TouchableOpacity
                 onPress={handleSave}
                 disabled={!deviceName.trim() || saving}
@@ -177,36 +321,43 @@ export default function ScanScreen({ onDeviceAdded, onBack }: Props) {
                   {saving ? '[ KAYDEDİLİYOR... ]' : '[ KAYDET ve BAĞLAN ]'}
                 </Text>
               </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={handleCancelForm}
+                activeOpacity={0.75}
+                style={styles.cancelBtn}
+              >
+                <Text style={styles.cancelBtnText}>← Listeye Dön</Text>
+              </TouchableOpacity>
+
             </View>
           )}
 
-          {/* ── Tarama butonu ── */}
-          {!foundIp && (
+          {/* ── Tarama / Tekrar Tara butonu ── */}
+          {!selectedIP && (
             <>
-              <View style={styles.dividerRow}>
-                <View style={styles.dividerLineRow} />
-                <Text style={styles.dividerLabel}>AKSİYON</Text>
-                <View style={styles.dividerLineRow} />
-              </View>
+              {foundDevices.length === 0 && (
+                <View style={styles.dividerRow}>
+                  <View style={styles.dividerLine} />
+                  <Text style={styles.dividerLabel}>AKSİYON</Text>
+                  <View style={styles.dividerLine} />
+                </View>
+              )}
+
               <TouchableOpacity
                 onPress={startScan}
                 disabled={scanning}
                 activeOpacity={0.75}
                 style={[styles.primaryBtn, scanning && styles.btnDisabled]}
               >
-                <Text style={styles.primaryBtnLabel}>TARAMA</Text>
+                <Text style={styles.primaryBtnLabel}>
+                  {foundDevices.length > 0 ? 'YENİDEN TARA' : 'TARAMA'}
+                </Text>
                 <Text style={[styles.primaryBtnText, scanning && styles.btnTextDisabled]}>
-                  {scanning ? '[ Taranıyor... ]' : '[ Ağda Ara ]'}
+                  {scanning ? '[ Taranıyor... ]' : foundDevices.length > 0 ? '[ Tekrar Tara ]' : '[ Ağda Ara ]'}
                 </Text>
               </TouchableOpacity>
             </>
-          )}
-
-          {/* Cihaz bulunduktan sonra tekrar tara */}
-          {foundIp && (
-            <TouchableOpacity onPress={startScan} style={styles.rescanBtn}>
-              <Text style={styles.rescanText}>↺ Tekrar Tara</Text>
-            </TouchableOpacity>
           )}
 
         </ScrollView>
@@ -226,7 +377,7 @@ export default function ScanScreen({ onDeviceAdded, onBack }: Props) {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: Colors.bg },
   kavWrapper: { flex: 1, paddingHorizontal: Spacing.xl, paddingTop: Spacing.lg },
-  scrollContent: { flexGrow: 1, justifyContent: 'center', gap: Spacing.xl, paddingBottom: Spacing.xl },
+  scrollContent: { flexGrow: 1, gap: Spacing.xl, paddingBottom: Spacing.xl },
 
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingTop: Spacing.lg },
   backBtn: { minWidth: 60 },
@@ -242,35 +393,57 @@ const styles = StyleSheet.create({
   titleMain: { fontFamily: Fonts.sans, fontSize: 42, lineHeight: 48, letterSpacing: -0.5, color: Colors.text, fontWeight: '300' },
   titleDesc: { fontFamily: Fonts.sans, fontSize: 13, color: Colors.text2, lineHeight: 20, marginTop: Spacing.xs },
 
-  // Tarama kartı
+  // Tarama göstergesi
   scanningCard: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md, borderWidth: 1, borderColor: Colors.border, borderRadius: Radius.sm, backgroundColor: Colors.bg3, paddingHorizontal: Spacing.lg, paddingVertical: Spacing.md },
   scanningTextGroup: { flex: 1, gap: 2 },
   scanningLabel: { fontFamily: Fonts.mono, fontSize: 11, letterSpacing: 3, color: Colors.cyan },
   scanningSubLabel: { fontFamily: Fonts.mono, fontSize: 10, letterSpacing: 1, color: Colors.text3 },
   scanningPct: { fontFamily: Fonts.mono, fontSize: 14, letterSpacing: 2, color: Colors.cyan },
-
-  // İlerleme çubuğu
   progressTrack: { height: 2, backgroundColor: Colors.border, borderRadius: 1, overflow: 'hidden' },
   progressFill: { height: '100%', backgroundColor: Colors.cyan, borderRadius: 1 },
 
-  // Bulunan cihaz kartı
-  foundCard: { borderWidth: 1, borderColor: Colors.cyan2, borderRadius: Radius.md, backgroundColor: Colors.cyanAlpha, padding: Spacing.lg, gap: Spacing.md },
-  foundHeader: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
-  foundDot: { width: 6, height: 6, borderRadius: 999, backgroundColor: Colors.cyan },
-  foundLabel: { fontFamily: Fonts.mono, fontSize: 9, letterSpacing: 3, color: Colors.cyan },
-  foundIp: { fontFamily: Fonts.mono, fontSize: 18, letterSpacing: 2, color: Colors.text },
-  dividerLine: { height: StyleSheet.hairlineWidth, backgroundColor: Colors.border },
+  // Bulunan cihazlar
+  deviceListSection: { gap: Spacing.md },
+  dividerRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md },
+  dividerLine: { flex: 1, height: StyleSheet.hairlineWidth, backgroundColor: Colors.border },
+  dividerLabel: { fontFamily: Fonts.mono, fontSize: 8, letterSpacing: 3, color: Colors.text3 },
+  deviceList: { borderWidth: 1, borderColor: Colors.border, borderRadius: Radius.md, backgroundColor: Colors.bg3, overflow: 'hidden' },
+  deviceRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: Spacing.lg, paddingVertical: Spacing.md, gap: Spacing.md },
+  deviceRowBorder: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: Colors.border3 },
+  deviceRowRegistered: { backgroundColor: Colors.cyanAlpha },
+  deviceRowLeft: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md, flex: 1 },
+  deviceDot: { width: 8, height: 8, borderRadius: 4, flexShrink: 0 },
+  deviceRowInfo: { flex: 1, gap: 2 },
+  deviceRowIp: { fontFamily: Fonts.mono, fontSize: 13, letterSpacing: 1.5, color: Colors.text },
+  deviceRowName: { fontFamily: Fonts.sans, fontSize: 12, color: Colors.text2 },
+  deviceRowNew: { fontFamily: Fonts.mono, fontSize: 9, letterSpacing: 1, color: Colors.text3 },
+  deviceRowRight: { alignItems: 'flex-end' },
+  registeredBadge: { paddingHorizontal: Spacing.sm, paddingVertical: 2, borderRadius: Radius.sm, borderWidth: 1, borderColor: Colors.cyan2, backgroundColor: Colors.cyanAlpha },
+  registeredBadgeText: { fontFamily: Fonts.mono, fontSize: 8, letterSpacing: 2, color: Colors.cyan },
+  addArrow: { fontFamily: Fonts.mono, fontSize: 18, color: Colors.green },
+
+  // Boş durum
+  emptyBox: { alignItems: 'center', gap: Spacing.sm, paddingVertical: Spacing.xl },
+  emptyText: { fontFamily: Fonts.sans, fontSize: 15, color: Colors.text2 },
+  emptySubText: { fontFamily: Fonts.mono, fontSize: 11, letterSpacing: 1, color: Colors.text3, textAlign: 'center' },
+
+  // İsim formu
+  nameForm: { borderWidth: 1, borderColor: Colors.cyan2, borderRadius: Radius.md, backgroundColor: Colors.cyanAlpha, padding: Spacing.lg, gap: Spacing.md },
+  selectedIpRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
+  selectedIpDot: { width: 6, height: 6, borderRadius: 999, backgroundColor: Colors.cyan },
+  selectedIpLabel: { fontFamily: Fonts.mono, fontSize: 8, letterSpacing: 3, color: Colors.cyan },
+  selectedIpValue: { fontFamily: Fonts.mono, fontSize: 14, letterSpacing: 2, color: Colors.text },
+  nameDivider: { height: StyleSheet.hairlineWidth, backgroundColor: Colors.border },
   fieldLabel: { fontFamily: Fonts.mono, fontSize: 9, letterSpacing: 3, color: Colors.text3 },
   nameInput: { backgroundColor: Colors.bg2, borderWidth: 1, borderColor: Colors.border, borderRadius: Radius.sm, paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm, fontFamily: Fonts.mono, fontSize: 14, letterSpacing: 1, color: Colors.text },
-  saveBtn: { borderWidth: 1, borderColor: Colors.cyan2, borderRadius: Radius.sm, backgroundColor: Colors.cyanAlpha, paddingVertical: Spacing.md, alignItems: 'center' },
+  saveBtn: { borderWidth: 1, borderColor: Colors.cyan2, borderRadius: Radius.sm, backgroundColor: Colors.bg2, paddingVertical: Spacing.md, alignItems: 'center' },
   saveBtnDisabled: { borderColor: Colors.border, backgroundColor: Colors.bg3 },
   saveBtnText: { fontFamily: Fonts.mono, fontSize: 12, letterSpacing: 2, color: Colors.cyan },
   saveBtnTextDisabled: { color: Colors.text3 },
-  rescanBtn: { alignSelf: 'center', paddingVertical: Spacing.sm },
-  rescanText: { fontFamily: Fonts.mono, fontSize: 11, letterSpacing: 2, color: Colors.text2 },
-  dividerRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md },
-  dividerLineRow: { flex: 1, height: StyleSheet.hairlineWidth, backgroundColor: Colors.border },
-  dividerLabel: { fontFamily: Fonts.mono, fontSize: 8, letterSpacing: 3, color: Colors.text3 },
+  cancelBtn: { alignItems: 'center', paddingVertical: Spacing.sm },
+  cancelBtnText: { fontFamily: Fonts.mono, fontSize: 11, letterSpacing: 2, color: Colors.text2 },
+
+  // Tarama butonu
   primaryBtn: { borderWidth: 1, borderColor: Colors.cyan2, borderRadius: Radius.sm, backgroundColor: Colors.cyanAlpha, paddingHorizontal: Spacing.lg, paddingVertical: Spacing.md, gap: 2 },
   primaryBtnLabel: { fontFamily: Fonts.mono, fontSize: 8, letterSpacing: 3, color: Colors.cyan2 },
   primaryBtnText: { fontFamily: Fonts.mono, fontSize: 15, letterSpacing: 2, color: Colors.cyan },

@@ -1,16 +1,11 @@
 /**
  * App.tsx
- * Kök bileşen — sadece router + global state.
+ * Kök bileşen — router + global state.
  *
- * Ekran akışı:
- *   loading      → AsyncStorage kontrol
- *   start        → kurulum veya tarama
- *   setup        → ESP32 WiFi yapılandırma
- *   scan         → ağ tarama / cihaz ekleme
- *   control      → ana kontrol ekranı
- *   deviceList   → kayıtlı cihazlar
- *   automation   → zamanlayıcı kuralları
- *   presets      → sahneler / efektler   ← YENİ
+ * ScanScreen artık iki callback alıyor:
+ *   onDeviceAdded    → yeni cihaz kaydedildi
+ *   onDeviceSelected → kayıtlı cihaz listeden seçildi
+ * Her ikisi de selectDevice() ile aynı akışa giriyor.
  */
 
 import { useEffect, useState } from 'react';
@@ -51,12 +46,7 @@ export default function App() {
   const initApp = async () => {
     const devices = await getDevices();
     const lastId  = await getLastDeviceId();
-
-    if (devices.length === 0) {
-      setStep('start');
-      return;
-    }
-
+    if (devices.length === 0) { setStep('start'); return; }
     const last = devices.find((d) => d.id === lastId) ?? devices[0];
     setActiveDevice(last);
     setStep('control');
@@ -68,7 +58,6 @@ export default function App() {
     setStep('control');
   };
 
-  // ── Yükleniyor ─────────────────────────────────────────────────
   if (step === 'loading') {
     return (
       <View style={styles.loading}>
@@ -77,7 +66,6 @@ export default function App() {
     );
   }
 
-  // ── Başlangıç ──────────────────────────────────────────────────
   if (step === 'start') {
     return (
       <StartScreen
@@ -87,29 +75,26 @@ export default function App() {
     );
   }
 
-  // ── WiFi kurulum ───────────────────────────────────────────────
   if (step === 'setup') {
     return (
       <SetupScreen
-        onDone={() => {
-          console.log('✅ SETUP TAMAMLANDI');
-          setStep('scan');
-        }}
+        onDone={() => { console.log('✅ SETUP TAMAMLANDI'); setStep('scan'); }}
       />
     );
   }
 
-  // ── Ağ tarama / cihaz ekleme ───────────────────────────────────
   if (step === 'scan') {
     return (
       <ScanScreen
+        // Yeni cihaz kaydedildi → control'e geç
         onDeviceAdded={(device) => selectDevice(device)}
+        // Kayıtlı cihaz seçildi → aynı akış
+        onDeviceSelected={(device) => selectDevice(device)}
         onBack={() => activeDevice ? setStep('control') : setStep('start')}
       />
     );
   }
 
-  // ── Cihaz listesi ──────────────────────────────────────────────
   if (step === 'deviceList' && activeDevice) {
     return (
       <DeviceListScreen
@@ -121,7 +106,6 @@ export default function App() {
     );
   }
 
-  // ── Otomasyon kuralları ────────────────────────────────────────
   if (step === 'automation' && activeDevice) {
     return (
       <AutomationScreen
@@ -131,7 +115,6 @@ export default function App() {
     );
   }
 
-  // ── Sahneler / Presetler ───────────────────────────────────────
   if (step === 'presets' && activeDevice) {
     return (
       <PresetsScreen
@@ -141,7 +124,6 @@ export default function App() {
     );
   }
 
-  // ── Ana kontrol ekranı ─────────────────────────────────────────
   if (step === 'control' && activeDevice) {
     return (
       <ControlScreen
@@ -158,10 +140,5 @@ export default function App() {
 }
 
 const styles = StyleSheet.create({
-  loading: {
-    flex: 1,
-    backgroundColor: Colors.bg,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+  loading: { flex: 1, backgroundColor: Colors.bg, alignItems: 'center', justifyContent: 'center' },
 });
