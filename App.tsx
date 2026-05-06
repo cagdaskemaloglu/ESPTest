@@ -2,10 +2,10 @@
  * App.tsx
  * Kök bileşen — router + global state.
  *
- * ScanScreen artık iki callback alıyor:
- *   onDeviceAdded    → yeni cihaz kaydedildi
- *   onDeviceSelected → kayıtlı cihaz listeden seçildi
- * Her ikisi de selectDevice() ile aynı akışa giriyor.
+ * Onboarding mantığı (B seçeneği):
+ *   Kayıtlı cihaz yoksa → OnboardingScreen → StartScreen
+ *   Kayıtlı cihaz varsa → direkt ControlScreen (onboarding atlanır)
+ *   Onboarding "Atla" veya "Başlayalım" → StartScreen
  */
 
 import { useEffect, useState } from 'react';
@@ -14,6 +14,7 @@ import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import AutomationScreen from './screens/AutomationScreen';
 import ControlScreen from './screens/ControlScreen';
 import DeviceListScreen from './screens/DeviceListScreen';
+import OnboardingScreen from './screens/OnboardingScreen';
 import PresetsScreen from './screens/PresetsScreen';
 import ScanScreen from './screens/ScanScreen';
 import SetupScreen from './screens/SetupScreen';
@@ -29,6 +30,7 @@ import { Device } from './types/Device';
 
 type Step =
   | 'loading'
+  | 'onboarding'
   | 'start'
   | 'setup'
   | 'scan'
@@ -46,7 +48,14 @@ export default function App() {
   const initApp = async () => {
     const devices = await getDevices();
     const lastId  = await getLastDeviceId();
-    if (devices.length === 0) { setStep('start'); return; }
+
+    if (devices.length === 0) {
+      // Kayıtlı cihaz yok → önce onboarding göster
+      setStep('onboarding');
+      return;
+    }
+
+    // Kayıtlı cihaz var → direkt kontrol ekranına geç
     const last = devices.find((d) => d.id === lastId) ?? devices[0];
     setActiveDevice(last);
     setStep('control');
@@ -58,6 +67,7 @@ export default function App() {
     setStep('control');
   };
 
+  // ── Yükleniyor ─────────────────────────────────────────────────
   if (step === 'loading') {
     return (
       <View style={styles.loading}>
@@ -66,6 +76,16 @@ export default function App() {
     );
   }
 
+  // ── Onboarding — sadece ilk kullanımda (cihaz yokken) ──────────
+  if (step === 'onboarding') {
+    return (
+      <OnboardingScreen
+        onDone={() => setStep('start')}
+      />
+    );
+  }
+
+  // ── Başlangıç ──────────────────────────────────────────────────
   if (step === 'start') {
     return (
       <StartScreen
@@ -75,26 +95,30 @@ export default function App() {
     );
   }
 
+  // ── WiFi kurulum ───────────────────────────────────────────────
   if (step === 'setup') {
     return (
       <SetupScreen
-        onDone={() => { console.log('✅ SETUP TAMAMLANDI'); setStep('scan'); }}
+        onDone={() => {
+          console.log('✅ SETUP TAMAMLANDI');
+          setStep('scan');
+        }}
       />
     );
   }
 
+  // ── Ağ tarama / cihaz ekleme ───────────────────────────────────
   if (step === 'scan') {
     return (
       <ScanScreen
-        // Yeni cihaz kaydedildi → control'e geç
-        onDeviceAdded={(device) => selectDevice(device)}
-        // Kayıtlı cihaz seçildi → aynı akış
+        onDeviceAdded={(device)    => selectDevice(device)}
         onDeviceSelected={(device) => selectDevice(device)}
         onBack={() => activeDevice ? setStep('control') : setStep('start')}
       />
     );
   }
 
+  // ── Cihaz listesi ──────────────────────────────────────────────
   if (step === 'deviceList' && activeDevice) {
     return (
       <DeviceListScreen
@@ -106,6 +130,7 @@ export default function App() {
     );
   }
 
+  // ── Otomasyon kuralları ────────────────────────────────────────
   if (step === 'automation' && activeDevice) {
     return (
       <AutomationScreen
@@ -115,6 +140,7 @@ export default function App() {
     );
   }
 
+  // ── Sahneler / Presetler ───────────────────────────────────────
   if (step === 'presets' && activeDevice) {
     return (
       <PresetsScreen
@@ -124,6 +150,7 @@ export default function App() {
     );
   }
 
+  // ── Ana kontrol ekranı ─────────────────────────────────────────
   if (step === 'control' && activeDevice) {
     return (
       <ControlScreen
@@ -140,5 +167,10 @@ export default function App() {
 }
 
 const styles = StyleSheet.create({
-  loading: { flex: 1, backgroundColor: Colors.bg, alignItems: 'center', justifyContent: 'center' },
+  loading: {
+    flex: 1,
+    backgroundColor: Colors.bg,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
 });
