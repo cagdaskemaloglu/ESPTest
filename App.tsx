@@ -2,10 +2,10 @@
  * App.tsx
  * Kök bileşen — router + global state.
  *
- * Onboarding mantığı (B seçeneği):
- *   Kayıtlı cihaz yoksa → OnboardingScreen → StartScreen
- *   Kayıtlı cihaz varsa → direkt ControlScreen (onboarding atlanır)
- *   Onboarding "Atla" veya "Başlayalım" → StartScreen
+ * Bildirim izni:
+ *   Uygulama ilk açılışta requestNotificationPermission() çağrılır.
+ *   Kullanıcı izin verirse automation bildirimleri çalışır.
+ *   İzin reddedilirse uygulama çalışmaya devam eder — bildirimler gelmez.
  */
 
 import { useEffect, useState } from 'react';
@@ -25,6 +25,7 @@ import {
   getLastDeviceId,
   saveLastDeviceId,
 } from './services/deviceStorage';
+import { requestNotificationPermission } from './services/notificationService';
 import { Colors } from './theme/colors';
 import { Device } from './types/Device';
 
@@ -46,16 +47,17 @@ export default function App() {
   useEffect(() => { initApp(); }, []);
 
   const initApp = async () => {
+    // Bildirim iznini uygulama açılışında iste
+    await requestNotificationPermission();
+
     const devices = await getDevices();
     const lastId  = await getLastDeviceId();
 
     if (devices.length === 0) {
-      // Kayıtlı cihaz yok → önce onboarding göster
       setStep('onboarding');
       return;
     }
 
-    // Kayıtlı cihaz var → direkt kontrol ekranına geç
     const last = devices.find((d) => d.id === lastId) ?? devices[0];
     setActiveDevice(last);
     setStep('control');
@@ -67,7 +69,6 @@ export default function App() {
     setStep('control');
   };
 
-  // ── Yükleniyor ─────────────────────────────────────────────────
   if (step === 'loading') {
     return (
       <View style={styles.loading}>
@@ -76,16 +77,10 @@ export default function App() {
     );
   }
 
-  // ── Onboarding — sadece ilk kullanımda (cihaz yokken) ──────────
   if (step === 'onboarding') {
-    return (
-      <OnboardingScreen
-        onDone={() => setStep('start')}
-      />
-    );
+    return <OnboardingScreen onDone={() => setStep('start')} />;
   }
 
-  // ── Başlangıç ──────────────────────────────────────────────────
   if (step === 'start') {
     return (
       <StartScreen
@@ -95,19 +90,14 @@ export default function App() {
     );
   }
 
-  // ── WiFi kurulum ───────────────────────────────────────────────
   if (step === 'setup') {
     return (
       <SetupScreen
-        onDone={() => {
-          console.log('✅ SETUP TAMAMLANDI');
-          setStep('scan');
-        }}
+        onDone={() => { console.log('✅ SETUP TAMAMLANDI'); setStep('scan'); }}
       />
     );
   }
 
-  // ── Ağ tarama / cihaz ekleme ───────────────────────────────────
   if (step === 'scan') {
     return (
       <ScanScreen
@@ -118,7 +108,6 @@ export default function App() {
     );
   }
 
-  // ── Cihaz listesi ──────────────────────────────────────────────
   if (step === 'deviceList' && activeDevice) {
     return (
       <DeviceListScreen
@@ -130,7 +119,6 @@ export default function App() {
     );
   }
 
-  // ── Otomasyon kuralları ────────────────────────────────────────
   if (step === 'automation' && activeDevice) {
     return (
       <AutomationScreen
@@ -140,7 +128,6 @@ export default function App() {
     );
   }
 
-  // ── Sahneler / Presetler ───────────────────────────────────────
   if (step === 'presets' && activeDevice) {
     return (
       <PresetsScreen
@@ -150,7 +137,6 @@ export default function App() {
     );
   }
 
-  // ── Ana kontrol ekranı ─────────────────────────────────────────
   if (step === 'control' && activeDevice) {
     return (
       <ControlScreen

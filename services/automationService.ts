@@ -1,33 +1,42 @@
 /**
  * services/automationService.ts
- * ESP32'nin automation endpoint'leriyle iletişim kurar.
- * Tüm fonksiyonlar async/await ile çalışır.
+ * ESP32 automation endpoint'leriyle iletişim.
+ *
+ * Her kural için:
+ *   - ESP32'ye kural gönderilir
+ *   - Telefona scheduled notification planlanır
+ *   - notificationId saklanır — kural silinince notification da iptal edilir
  */
 
-// ── Tipler ───────────────────────────────────────────────────────────────────
+import { cancelNotification, scheduleDaily, scheduleOnce } from './notificationService';
 
-export type RuleType   = 0 | 1;  // 0 = günlük, 1 = tek seferlik countdown
-export type RuleAction = 0 | 1;  // 0 = kapat, 1 = aç
+export type RuleType   = 0 | 1;
+export type RuleAction = 0 | 1;
 
 export type AutomationRule = {
-  id:         string;      // ESP32'den gelen 8 karakter ID
-  active:     boolean;
-  type:       RuleType;
-  hour:       number;      // type=0 için (0-23)
-  minute:     number;      // type=0 için (0-59)
-  action:     RuleAction;
-  triggerAt:  number;      // type=1 için Unix timestamp
+  id:              string;
+  active:          boolean;
+  type:            RuleType;
+  hour:            number;
+  minute:          number;
+  action:          RuleAction;
+  triggerAt:       number;
+  // Telefon tarafında saklanan notification ID
+  // ESP32 bunu bilmez — sadece AsyncStorage'da tutulur
+  notificationId?: string;
 };
 
 export type AddDailyParams = {
-  hour:   number;
-  minute: number;
-  action: RuleAction;
+  hour:       number;
+  minute:     number;
+  action:     RuleAction;
+  deviceName: string;
 };
 
 export type AddCountdownParams = {
-  countdown: number;   // Saniye cinsinden (örn. 1800 = 30 dakika)
-  action:    RuleAction;
+  countdown:  number;    // Saniye cinsinden
+  action:     RuleAction;
+  deviceName: string;
 };
 
 export type ESP32Time = {
@@ -39,7 +48,6 @@ export type ESP32Time = {
 
 // ── API fonksiyonları ─────────────────────────────────────────────────────────
 
-// Tüm kuralları listele
 export async function listRules(ip: string): Promise<AutomationRule[]> {
   try {
     const res  = await fetch(`http://${ip}/automation/list`);
@@ -51,42 +59,76 @@ export async function listRules(ip: string): Promise<AutomationRule[]> {
   }
 }
 
-// Günlük zamanlayıcı ekle (her gün saat X:XX'de tetiklenir)
+// Günlük kural ekle + telefona bildirim planla
 export async function addDailyRule(
   ip: string,
   params: AddDailyParams
-): Promise<{ id: string } | null> {
+): Promise<{ id: string; notificationId?: string } | null> {
   try {
+    // ESP32'ye kural gönder
     const url = `http://${ip}/automation/add?type=0&hour=${params.hour}&minute=${params.minute}&action=${params.action}`;
     const res  = await fetch(url);
     const data = await res.json();
-    return data;
+
+    if (!data.id) return null;
+
+    // Telefona günlük bildirim planla
+    const notificationId = await scheduleDaily({
+      hour:       params.hour,
+      minute:     params.minute,
+      action:     params.action,
+      deviceName: params.deviceName,
+    });
+
+    return { id: data.id, notificationId: notificationId ?? undefined };
   } catch (e) {
     console.error('addDailyRule hata:', e);
     return null;
   }
 }
 
-// Tek seferlik countdown ekle (X saniye sonra tetiklenir)
+// Countdown kuralı ekle + telefona bildirim planla
 export async function addCountdownRule(
   ip: string,
   params: AddCountdownParams
-): Promise<{ id: string } | null> {
+): Promise<{ id: string; notificationId?: string } | null> {
   try {
-    const url = `http://${ip}/automation/add?type=1&countdown=${params.countdown}&action=${params.action}`;
+    const url  = `http://${ip}/automation/add?type=1&countdown=${params.countdown}&action=${params.action}`;
     const res  = await fetch(url);
     const data = await res.json();
-    return data;
+
+    if (!data.id) return null;
+
+    // Tetiklenme zamanı = şu an + countdown saniyesi
+    const triggerAt = Math.floor(Date.now() / 1000) + params.countdown;
+
+    const notificationId = await scheduleOnce({
+      triggerAt,
+      action:     params.action,
+      deviceName: params.deviceName,
+    });
+
+    return { id: data.id, notificationId: notificationId ?? undefined };
   } catch (e) {
     console.error('addCountdownRule hata:', e);
     return null;
   }
 }
 
-// Kural sil
-export async function deleteRule(ip: string, id: string): Promise<boolean> {
+// Kural sil + notification iptal et
+export async function deleteRule(
+  ip: string,
+  id: string,
+  notificationId?: string
+): Promise<boolean> {
   try {
     const res = await fetch(`http://${ip}/automation/delete?id=${id}`);
+
+    // Notification varsa iptal et
+    if (notificationId) {
+      await cancelNotification(notificationId);
+    }
+
     return res.ok;
   } catch (e) {
     console.error('deleteRule hata:', e);
@@ -94,7 +136,7 @@ export async function deleteRule(ip: string, id: string): Promise<boolean> {
   }
 }
 
-// Kural aktif/pasif toggle
+// Toggle — notification'ı etkilemez (aktif/pasif durum ESP32'de)
 export async function toggleRule(
   ip: string,
   id: string
@@ -109,7 +151,6 @@ export async function toggleRule(
   }
 }
 
-// ESP32'nin mevcut saatini al (NTP doğrulama için)
 export async function getESP32Time(ip: string): Promise<ESP32Time | null> {
   try {
     const res  = await fetch(`http://${ip}/automation/time`);
@@ -121,10 +162,7 @@ export async function getESP32Time(ip: string): Promise<ESP32Time | null> {
   }
 }
 
-// ── Yardımcı fonksiyonlar ────────────────────────────────────────────────────
-
-// Kural için okunabilir açıklama üretir
-// Örn: "Her gün 22:00'de kapat" veya "30 dakika sonra aç"
+// Kural için okunabilir açıklama
 export function ruleDescription(rule: AutomationRule): string {
   const actionLabel = rule.action === 1 ? 'aç' : 'kapat';
 
@@ -133,7 +171,6 @@ export function ruleDescription(rule: AutomationRule): string {
     const m = String(rule.minute).padStart(2, '0');
     return `Her gün ${h}:${m}'de ${actionLabel}`;
   } else {
-    // Countdown: triggerAt ile şimdiki zaman farkını göster
     const remaining = rule.triggerAt - Math.floor(Date.now() / 1000);
     if (remaining <= 0 || !rule.active) return `Tek seferlik — ${actionLabel} (tamamlandı)`;
     const mins = Math.floor(remaining / 60);

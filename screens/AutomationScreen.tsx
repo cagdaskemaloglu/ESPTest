@@ -1,13 +1,14 @@
 /**
  * screens/AutomationScreen.tsx
- * ESP32 üzerindeki automation kurallarını yönetir.
+ * ESP32 automation kurallarını yönetir.
  *
- * Kural tipleri:
- *   - Günlük: her gün seçilen saat:dakikada tetiklenir
- *   - Countdown: girilen saat + dakika kadar sonra tek seferlik tetiklenir
+ * Bildirim entegrasyonu:
+ *   Kural eklenince → telefona scheduled notification planlanır
+ *   Kural silinince → notification iptal edilir
+ *   notificationId kuralın yanında state'te saklanır
  *
- * Saat/dakika seçimi: yatay scroll picker yerine
- * + / - butonlu sayısal giriş — istenen değer özgürce ayarlanabilir.
+ * notificationId ESP32'de değil, sadece telefonda tutulur.
+ * AutomationRule tipine notificationId eklendi.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -30,34 +31,31 @@ import {
   ruleDescription,
   toggleRule,
 } from '../services/automationService';
+import { requestNotificationPermission } from '../services/notificationService';
 import { Colors, Fonts, Radius, Spacing } from '../theme/colors';
 import { Device } from '../types/Device';
 
-type Props = {
-  device: Device;
-  onBack: () => void;
-};
-
+type Props = { device: Device; onBack: () => void };
 type FormMode = 'none' | 'daily' | 'countdown';
 
-// ── Sayısal +/- picker bileşeni ─────────────────────────────────────────────
-// min/max arasında değer tutar, uzun basınca hızlanır
+// notificationId'yi yerel state'te tut
+// ESP32'den gelen listede yok — sadece bu oturumda eklenenler için var
+type LocalRule = AutomationRule & { notificationId?: string };
+
+// ── NumberPicker bileşeni ─────────────────────────────────────────────────────
 type NumberPickerProps = {
   label:    string;
   value:    number;
   min:      number;
   max:      number;
   onChange: (v: number) => void;
-  pad?:     number; // Kaç basamak sıfır doldurulsun (örn. 2 → "05")
 };
 
-function NumberPicker({ label, value, min, max, onChange, pad = 2 }: NumberPickerProps) {
+function NumberPicker({ label, value, min, max, onChange }: NumberPickerProps) {
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const timeoutRef  = useRef<ReturnType<typeof setTimeout>  | null>(null);
-
   const clamp = (v: number) => Math.max(min, Math.min(max, v));
 
-  // Uzun basma: 400ms sonra her 100ms'de bir artır/azalt
   const startRepeat = (delta: number) => {
     timeoutRef.current = setTimeout(() => {
       intervalRef.current = setInterval(() => {
@@ -72,104 +70,70 @@ function NumberPicker({ label, value, min, max, onChange, pad = 2 }: NumberPicke
   };
 
   return (
-    <View style={pickerStyles.wrapper}>
-      <Text style={pickerStyles.label}>{label}</Text>
-      <View style={pickerStyles.row}>
-
-        {/* Azalt butonu */}
+    <View style={ps.wrapper}>
+      <Text style={ps.label}>{label}</Text>
+      <View style={ps.row}>
         <TouchableOpacity
           onPress={() => onChange(clamp(value - 1))}
           onLongPress={() => startRepeat(-1)}
           onPressOut={stopRepeat}
           activeOpacity={0.7}
-          style={pickerStyles.btn}
+          style={ps.btn}
         >
-          <Text style={pickerStyles.btnText}>−</Text>
+          <Text style={ps.btnText}>−</Text>
         </TouchableOpacity>
-
-        {/* Değer göstergesi */}
-        <View style={pickerStyles.display}>
-          <Text style={pickerStyles.displayText}>
-            {String(value).padStart(pad, '0')}
-          </Text>
+        <View style={ps.display}>
+          <Text style={ps.displayText}>{String(value).padStart(2, '0')}</Text>
         </View>
-
-        {/* Artır butonu */}
         <TouchableOpacity
           onPress={() => onChange(clamp(value + 1))}
           onLongPress={() => startRepeat(1)}
           onPressOut={stopRepeat}
           activeOpacity={0.7}
-          style={pickerStyles.btn}
+          style={ps.btn}
         >
-          <Text style={pickerStyles.btnText}>+</Text>
+          <Text style={ps.btnText}>+</Text>
         </TouchableOpacity>
-
       </View>
     </View>
   );
 }
 
-const pickerStyles = StyleSheet.create({
+const ps = StyleSheet.create({
   wrapper: { alignItems: 'center', gap: Spacing.sm },
-  label: {
-    fontFamily: Fonts.mono,
-    fontSize: 9,
-    letterSpacing: 3,
-    color: Colors.text3,
-  },
-  row: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
+  label:   { fontFamily: Fonts.mono, fontSize: 9, letterSpacing: 3, color: Colors.text3 },
+  row:     { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
   btn: {
-    width: 44,
-    height: 44,
-    borderRadius: Radius.sm,
-    borderWidth: 1,
-    borderColor: Colors.border2,
+    width: 44, height: 44, borderRadius: Radius.sm,
+    borderWidth: 1, borderColor: Colors.border2,
     backgroundColor: Colors.bg4,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: 'center', justifyContent: 'center',
   },
-  btnText: {
-    fontFamily: Fonts.mono,
-    fontSize: 20,
-    color: Colors.cyan,
-    lineHeight: 24,
-  },
+  btnText:     { fontFamily: Fonts.mono, fontSize: 20, color: Colors.cyan, lineHeight: 24 },
   display: {
-    width: 72,
-    height: 52,
-    borderRadius: Radius.sm,
-    borderWidth: 1,
-    borderColor: Colors.cyan2,
+    width: 72, height: 52, borderRadius: Radius.sm,
+    borderWidth: 1, borderColor: Colors.cyan2,
     backgroundColor: Colors.cyanAlpha,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: 'center', justifyContent: 'center',
   },
-  displayText: {
-    fontFamily: Fonts.mono,
-    fontSize: 28,
-    color: Colors.cyan,
-    letterSpacing: 2,
-  },
+  displayText: { fontFamily: Fonts.mono, fontSize: 28, color: Colors.cyan, letterSpacing: 2 },
 });
-// ─────────────────────────────────────────────────────────────────────────────
 
+// ── Ana bileşen ───────────────────────────────────────────────────────────────
 export default function AutomationScreen({ device, onBack }: Props) {
-  const [rules, setRules]         = useState<AutomationRule[]>([]);
+  const [rules, setRules]         = useState<LocalRule[]>([]);
   const [loading, setLoading]     = useState(true);
   const [esp32Time, setEsp32Time] = useState<string | null>(null);
   const [saving, setSaving]       = useState(false);
   const [formMode, setFormMode]   = useState<FormMode>('none');
 
-  // Günlük form state
+  // Form state
   const [dailyHour,   setDailyHour]   = useState(22);
   const [dailyMinute, setDailyMinute] = useState(0);
   const [dailyAction, setDailyAction] = useState<0 | 1>(0);
-
-  // Countdown form state — saat + dakika cinsinden ayrı ayrı
-  const [cdHour,   setCdHour]   = useState(0);
-  const [cdMinute, setCdMinute] = useState(30);
-  const [cdAction, setCdAction] = useState<0 | 1>(0);
+  const [cdHour,   setCdHour]         = useState(0);
+  const [cdMinute, setCdMinute]       = useState(30);
+  const [cdAction, setCdAction]       = useState<0 | 1>(0);
 
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -179,13 +143,13 @@ export default function AutomationScreen({ device, onBack }: Props) {
       listRules(device.ip),
       getESP32Time(device.ip),
     ]);
-    setRules(ruleList);
+    // ESP32'den gelen kurallar — notificationId yok (telefon tarafında saklanmıyor)
+    setRules(ruleList.map((r) => ({ ...r, notificationId: undefined })));
 
     if (time) {
-      const h = String(time.hour).padStart(2, '0');
-      const m = String(time.minute).padStart(2, '0');
-      const s = String(time.second).padStart(2, '0');
-      setEsp32Time(`${h}:${m}:${s}`);
+      setEsp32Time(
+        `${String(time.hour).padStart(2,'0')}:${String(time.minute).padStart(2,'0')}:${String(time.second).padStart(2,'0')}`
+      );
     } else {
       setEsp32Time(null);
     }
@@ -193,65 +157,97 @@ export default function AutomationScreen({ device, onBack }: Props) {
   }, [device.ip]);
 
   useEffect(() => {
+    // Bildirim izni iste
+    requestNotificationPermission();
+
     loadData();
 
-    // Countdown kalan süresi için her saniye re-render
     timerRef.current = setInterval(() => setRules((p) => [...p]), 1000);
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
   }, [loadData]);
 
   // ── Kural ekle ─────────────────────────────────────────────────────────────
-
   const handleAddDaily = async () => {
     setSaving(true);
     const result = await addDailyRule(device.ip, {
-      hour:   dailyHour,
-      minute: dailyMinute,
-      action: dailyAction,
+      hour:       dailyHour,
+      minute:     dailyMinute,
+      action:     dailyAction,
+      deviceName: device.name,
     });
     setSaving(false);
-    if (result) { setFormMode('none'); await loadData(); }
-    else Alert.alert('Hata', 'Kural eklenemedi. ESP32 bağlantısını kontrol et.');
+
+    if (result) {
+      // Yeni kuralı notificationId ile birlikte listeye ekle
+      setRules((prev) => [...prev, {
+        id:              result.id,
+        active:          true,
+        type:            0,
+        hour:            dailyHour,
+        minute:          dailyMinute,
+        action:          dailyAction,
+        triggerAt:       0,
+        triggered:       false,
+        notificationId:  result.notificationId,
+      }]);
+      setFormMode('none');
+    } else {
+      Alert.alert('Hata', 'Kural eklenemedi. ESP32 bağlantısını kontrol et.');
+    }
   };
 
   const handleAddCountdown = async () => {
     const totalSeconds = cdHour * 3600 + cdMinute * 60;
-    if (totalSeconds === 0) {
-      Alert.alert('Hata', 'Süre en az 1 dakika olmalı.');
-      return;
-    }
+    if (totalSeconds === 0) { Alert.alert('Hata', 'Süre en az 1 dakika olmalı.'); return; }
+
     setSaving(true);
     const result = await addCountdownRule(device.ip, {
-      countdown: totalSeconds,
-      action:    cdAction,
+      countdown:  totalSeconds,
+      action:     cdAction,
+      deviceName: device.name,
     });
     setSaving(false);
-    if (result) { setFormMode('none'); await loadData(); }
-    else Alert.alert('Hata', 'Kural eklenemedi. ESP32 bağlantısını kontrol et.');
+
+    if (result) {
+      const triggerAt = Math.floor(Date.now() / 1000) + totalSeconds;
+      setRules((prev) => [...prev, {
+        id:             result.id,
+        active:         true,
+        type:           1,
+        hour:           0,
+        minute:         0,
+        action:         cdAction,
+        triggerAt,
+        triggered:      false,
+        notificationId: result.notificationId,
+      }]);
+      setFormMode('none');
+    } else {
+      Alert.alert('Hata', 'Kural eklenemedi. ESP32 bağlantısını kontrol et.');
+    }
   };
 
   // ── Kural sil ──────────────────────────────────────────────────────────────
-
-  const handleDelete = (rule: AutomationRule) => {
+  const handleDelete = (rule: LocalRule) => {
     Alert.alert(
       'Kuralı Sil',
-      `"${ruleDescription(rule)}" silinsin mi?`,
+      `"${ruleDescription(rule)}" silinsin mi?\n\nİlgili bildirim de iptal edilecek.`,
       [
         { text: 'İptal', style: 'cancel' },
         {
           text: 'Sil', style: 'destructive',
           onPress: async () => {
-            await deleteRule(device.ip, rule.id);
-            await loadData();
+            // Notification ID'si ile birlikte sil
+            await deleteRule(device.ip, rule.id, rule.notificationId);
+            setRules((prev) => prev.filter((r) => r.id !== rule.id));
           },
         },
       ]
     );
   };
 
-  // ── Kural toggle ───────────────────────────────────────────────────────────
-
-  const handleToggle = async (rule: AutomationRule) => {
+  // ── Toggle ─────────────────────────────────────────────────────────────────
+  const handleToggle = async (rule: LocalRule) => {
     const result = await toggleRule(device.ip, rule.id);
     if (result !== null) {
       setRules((prev) =>
@@ -260,37 +256,30 @@ export default function AutomationScreen({ device, onBack }: Props) {
     }
   };
 
-  // ── Aksiyon seçici alt bileşeni ────────────────────────────────────────────
-  const ActionPicker = ({
-    value, onChange,
-  }: { value: 0 | 1; onChange: (v: 0 | 1) => void }) => (
+  // ── Aksiyon seçici ─────────────────────────────────────────────────────────
+  const ActionPicker = ({ value, onChange }: { value: 0 | 1; onChange: (v: 0 | 1) => void }) => (
     <View style={styles.actionRow}>
       <TouchableOpacity
         onPress={() => onChange(1)}
         style={[styles.actionChoice, value === 1 && styles.actionChoiceOn]}
         activeOpacity={0.75}
       >
-        <Text style={[styles.actionChoiceText, value === 1 && { color: Colors.cyan }]}>
-          AÇ
-        </Text>
+        <Text style={[styles.actionChoiceText, value === 1 && { color: Colors.cyan }]}>AÇ</Text>
       </TouchableOpacity>
       <TouchableOpacity
         onPress={() => onChange(0)}
         style={[styles.actionChoice, value === 0 && styles.actionChoiceOff]}
         activeOpacity={0.75}
       >
-        <Text style={[styles.actionChoiceText, value === 0 && { color: Colors.red }]}>
-          KAPAT
-        </Text>
+        <Text style={[styles.actionChoiceText, value === 0 && { color: Colors.red }]}>KAPAT</Text>
       </TouchableOpacity>
     </View>
   );
 
-  // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <SafeAreaView style={styles.root}>
 
-      {/* ── Header ── */}
+      {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={onBack} style={styles.backBtn}>
           <Text style={styles.backText}>← GERİ</Text>
@@ -309,22 +298,30 @@ export default function AutomationScreen({ device, onBack }: Props) {
         keyboardShouldPersistTaps="handled"
       >
 
-        {/* Başlık + ESP32 saati */}
+        {/* Başlık */}
         <View style={styles.titleBlock}>
           <Text style={styles.titleEyebrow}>// {device.name}</Text>
           <Text style={styles.titleMain}>Zamanlayıcılar</Text>
-          <View style={styles.timeRow}>
-            <View style={[styles.timeDot, {
-              backgroundColor: esp32Time ? Colors.green : Colors.amber,
-            }]} />
-            {esp32Time
-              ? <Text style={styles.timeText}>ESP32 saati: {esp32Time}</Text>
-              : <Text style={[styles.timeText, { color: Colors.amber }]}>NTP senkronizasyonu bekleniyor...</Text>
-            }
+
+          {/* ESP32 saati + bildirim bilgisi */}
+          <View style={styles.infoRow}>
+            <View style={styles.timeRow}>
+              <View style={[styles.timeDot, {
+                backgroundColor: esp32Time ? Colors.green : Colors.amber,
+              }]} />
+              {esp32Time
+                ? <Text style={styles.timeText}>ESP32: {esp32Time}</Text>
+                : <Text style={[styles.timeText, { color: Colors.amber }]}>NTP bekleniyor...</Text>
+              }
+            </View>
+            <View style={styles.notifRow}>
+              <Text style={styles.notifIcon}>🔔</Text>
+              <Text style={styles.notifText}>Bildirimler aktif</Text>
+            </View>
           </View>
         </View>
 
-        {/* ── Kural listesi ── */}
+        {/* Kural listesi */}
         {loading ? (
           <View style={styles.emptyBox}>
             <Text style={styles.emptyText}>Yükleniyor...</Text>
@@ -361,6 +358,12 @@ export default function AutomationScreen({ device, onBack }: Props) {
                           {item.action === 1 ? 'AÇ' : 'KAPAT'}
                         </Text>
                       </View>
+                      {/* Bildirim rozeti */}
+                      {item.notificationId && (
+                        <View style={styles.notifBadge}>
+                          <Text style={styles.notifBadgeText}>🔔</Text>
+                        </View>
+                      )}
                     </View>
                   </View>
                   <View style={styles.ruleActions}>
@@ -382,7 +385,7 @@ export default function AutomationScreen({ device, onBack }: Props) {
           </View>
         )}
 
-        {/* ── Kural ekle butonları ── */}
+        {/* Kural ekle butonları */}
         {formMode === 'none' && (
           <View style={styles.addButtons}>
             <View style={styles.dividerRow}>
@@ -401,33 +404,25 @@ export default function AutomationScreen({ device, onBack }: Props) {
           </View>
         )}
 
-        {/* ── Günlük form ── */}
+        {/* Günlük form */}
         {formMode === 'daily' && (
           <View style={styles.form}>
             <Text style={styles.formTitle}>// GÜNLİK ZAMANLAYICI</Text>
-
-            {/* Saat + Dakika picker yan yana */}
             <View style={styles.timePickerRow}>
-              <NumberPicker
-                label="SAAT"
-                value={dailyHour}
-                min={0} max={23}
-                onChange={setDailyHour}
-              />
+              <NumberPicker label="SAAT"    value={dailyHour}   min={0} max={23} onChange={setDailyHour} />
               <Text style={styles.timeSeparator}>:</Text>
-              <NumberPicker
-                label="DAKİKA"
-                value={dailyMinute}
-                min={0} max={59}
-                onChange={setDailyMinute}
-              />
+              <NumberPicker label="DAKİKA" value={dailyMinute} min={0} max={59} onChange={setDailyMinute} />
             </View>
-
-            {/* Aksiyon */}
             <Text style={styles.formLabel}>AKSİYON</Text>
             <ActionPicker value={dailyAction} onChange={setDailyAction} />
 
-            {/* Özet */}
+            {/* Bildirim bilgisi */}
+            <View style={styles.notifInfoBox}>
+              <Text style={styles.notifInfoText}>
+                🔔 Her gün {String(dailyHour).padStart(2,'0')}:{String(dailyMinute).padStart(2,'0')}'de telefona bildirim gönderilecek.
+              </Text>
+            </View>
+
             <View style={styles.summaryBox}>
               <Text style={styles.summaryText}>
                 Her gün{' '}
@@ -442,7 +437,12 @@ export default function AutomationScreen({ device, onBack }: Props) {
             </View>
 
             <View style={styles.formButtons}>
-              <TouchableOpacity onPress={handleAddDaily} disabled={saving} style={[styles.saveBtn, saving && styles.saveBtnDisabled]} activeOpacity={0.75}>
+              <TouchableOpacity
+                onPress={handleAddDaily}
+                disabled={saving}
+                style={[styles.saveBtn, saving && styles.saveBtnDisabled]}
+                activeOpacity={0.75}
+              >
                 <Text style={[styles.saveBtnText, saving && { color: Colors.text3 }]}>
                   {saving ? '[ KAYDEDİLİYOR... ]' : '[ KAYDET ]'}
                 </Text>
@@ -454,46 +454,34 @@ export default function AutomationScreen({ device, onBack }: Props) {
           </View>
         )}
 
-        {/* ── Countdown formu ── */}
+        {/* Countdown formu */}
         {formMode === 'countdown' && (
           <View style={styles.form}>
             <Text style={styles.formTitle}>// TEK SEFERLİK ZAMANLAYICI</Text>
-
-            {/* Saat + Dakika picker yan yana */}
             <View style={styles.timePickerRow}>
-              <NumberPicker
-                label="SAAT"
-                value={cdHour}
-                min={0} max={23}
-                onChange={setCdHour}
-              />
+              <NumberPicker label="SAAT"    value={cdHour}   min={0} max={23} onChange={setCdHour} />
               <Text style={styles.timeSeparator}>:</Text>
-              <NumberPicker
-                label="DAKİKA"
-                value={cdMinute}
-                min={0} max={59}
-                onChange={setCdMinute}
-              />
+              <NumberPicker label="DAKİKA" value={cdMinute} min={0} max={59} onChange={setCdMinute} />
             </View>
-
-            {/* Aksiyon */}
             <Text style={styles.formLabel}>AKSİYON</Text>
             <ActionPicker value={cdAction} onChange={setCdAction} />
 
-            {/* Özet */}
+            {/* Bildirim bilgisi */}
+            {(cdHour > 0 || cdMinute > 0) && (
+              <View style={styles.notifInfoBox}>
+                <Text style={styles.notifInfoText}>
+                  🔔 {cdHour > 0 ? `${cdHour} saat ` : ''}{cdMinute > 0 ? `${cdMinute} dakika ` : ''}sonra telefona bildirim gönderilecek.
+                </Text>
+              </View>
+            )}
+
             <View style={styles.summaryBox}>
               {cdHour === 0 && cdMinute === 0 ? (
-                <Text style={[styles.summaryText, { color: Colors.amber }]}>
-                  ⚠ En az 1 dakika giriniz
-                </Text>
+                <Text style={[styles.summaryText, { color: Colors.amber }]}>⚠ En az 1 dakika giriniz</Text>
               ) : (
                 <Text style={styles.summaryText}>
-                  {cdHour > 0 && (
-                    <Text style={{ color: Colors.cyan }}>{cdHour} saat </Text>
-                  )}
-                  {cdMinute > 0 && (
-                    <Text style={{ color: Colors.cyan }}>{cdMinute} dakika </Text>
-                  )}
+                  {cdHour > 0   && <Text style={{ color: Colors.cyan }}>{cdHour} saat </Text>}
+                  {cdMinute > 0 && <Text style={{ color: Colors.cyan }}>{cdMinute} dakika </Text>}
                   {'sonra LED '}
                   <Text style={{ color: cdAction === 1 ? Colors.cyan : Colors.red }}>
                     {cdAction === 1 ? 'açılacak' : 'kapanacak'}
@@ -522,7 +510,7 @@ export default function AutomationScreen({ device, onBack }: Props) {
 
       </ScrollView>
 
-      {/* ── Footer ── */}
+      {/* Footer */}
       <View style={styles.footer}>
         <Text style={styles.footerText}>37.0° N · 35.3° E</Text>
         <View style={styles.footerSep} />
@@ -547,9 +535,13 @@ const styles = StyleSheet.create({
   titleBlock: { gap: Spacing.sm },
   titleEyebrow: { fontFamily: Fonts.mono, fontSize: 10, letterSpacing: 4, color: Colors.cyan },
   titleMain: { fontFamily: Fonts.sans, fontSize: 32, color: Colors.text, fontWeight: '300' },
-  timeRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, marginTop: Spacing.xs },
+  infoRow: { gap: Spacing.xs },
+  timeRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
   timeDot: { width: 6, height: 6, borderRadius: 999 },
   timeText: { fontFamily: Fonts.mono, fontSize: 10, letterSpacing: 1, color: Colors.text3 },
+  notifRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.xs },
+  notifIcon: { fontSize: 11 },
+  notifText: { fontFamily: Fonts.mono, fontSize: 10, letterSpacing: 1, color: Colors.green },
   emptyBox: { alignItems: 'center', gap: Spacing.sm, paddingVertical: Spacing.xl },
   emptyText: { fontFamily: Fonts.sans, fontSize: 15, color: Colors.text2 },
   emptySubText: { fontFamily: Fonts.mono, fontSize: 11, letterSpacing: 1, color: Colors.text3, textAlign: 'center' },
@@ -560,9 +552,11 @@ const styles = StyleSheet.create({
   ruleCenter: { flex: 1, gap: Spacing.xs },
   ruleDesc: { fontFamily: Fonts.sans, fontSize: 14, color: Colors.text, lineHeight: 20 },
   ruleDescInactive: { color: Colors.text2 },
-  ruleTagRow: { flexDirection: 'row', gap: Spacing.sm },
+  ruleTagRow: { flexDirection: 'row', gap: Spacing.sm, flexWrap: 'wrap' },
   ruleTag: { paddingHorizontal: Spacing.sm, paddingVertical: 2, borderRadius: Radius.sm, backgroundColor: Colors.bg4, borderWidth: 1, borderColor: Colors.border },
   ruleTagText: { fontFamily: Fonts.mono, fontSize: 8, letterSpacing: 2, color: Colors.text3 },
+  notifBadge: { paddingHorizontal: Spacing.xs, paddingVertical: 2, borderRadius: Radius.sm, backgroundColor: Colors.greenAlpha },
+  notifBadgeText: { fontSize: 10 },
   ruleActions: { gap: Spacing.sm, alignItems: 'flex-end' },
   actionBtn: { paddingVertical: 2 },
   actionText: { fontFamily: Fonts.mono, fontSize: 9, letterSpacing: 2, color: Colors.text2 },
@@ -577,31 +571,23 @@ const styles = StyleSheet.create({
   form: { gap: Spacing.lg, borderWidth: 1, borderColor: Colors.border, borderRadius: Radius.md, backgroundColor: Colors.bg3, padding: Spacing.lg },
   formTitle: { fontFamily: Fonts.mono, fontSize: 10, letterSpacing: 3, color: Colors.cyan },
   formLabel: { fontFamily: Fonts.mono, fontSize: 9, letterSpacing: 3, color: Colors.text3, marginBottom: -Spacing.sm },
-
-  // +/- picker satırı
   timePickerRow: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'center', gap: Spacing.md },
   timeSeparator: { fontFamily: Fonts.mono, fontSize: 32, color: Colors.text2, marginBottom: 6, lineHeight: 52 },
-
-  // Aksiyon seçici
   actionRow: { flexDirection: 'row', gap: Spacing.md },
   actionChoice: { flex: 1, height: 44, borderRadius: Radius.sm, borderWidth: 1, borderColor: Colors.border, backgroundColor: Colors.bg4, alignItems: 'center', justifyContent: 'center' },
   actionChoiceOn:  { borderColor: Colors.cyan2, backgroundColor: Colors.cyanAlpha },
   actionChoiceOff: { borderColor: Colors.red, backgroundColor: Colors.redAlpha },
   actionChoiceText: { fontFamily: Fonts.mono, fontSize: 13, letterSpacing: 2, color: Colors.text2 },
-
-  // Özet
+  notifInfoBox: { borderWidth: 1, borderColor: Colors.green, borderRadius: Radius.sm, backgroundColor: Colors.greenAlpha, padding: Spacing.md },
+  notifInfoText: { fontFamily: Fonts.mono, fontSize: 11, letterSpacing: 1, color: Colors.green, lineHeight: 18 },
   summaryBox: { borderWidth: 1, borderColor: Colors.border2, borderRadius: Radius.sm, backgroundColor: Colors.bg4, padding: Spacing.md },
   summaryText: { fontFamily: Fonts.sans, fontSize: 14, color: Colors.text, lineHeight: 22 },
-
-  // Form butonları
   formButtons: { gap: Spacing.sm },
   saveBtn: { height: 48, borderWidth: 1, borderColor: Colors.cyan2, borderRadius: Radius.sm, backgroundColor: Colors.cyanAlpha, alignItems: 'center', justifyContent: 'center' },
   saveBtnDisabled: { borderColor: Colors.border, backgroundColor: Colors.bg4 },
   saveBtnText: { fontFamily: Fonts.mono, fontSize: 13, letterSpacing: 2, color: Colors.cyan },
   cancelBtn: { height: 44, borderWidth: 1, borderColor: Colors.border, borderRadius: Radius.sm, backgroundColor: 'transparent', alignItems: 'center', justifyContent: 'center' },
   cancelBtnText: { fontFamily: Fonts.mono, fontSize: 12, letterSpacing: 2, color: Colors.text2 },
-
-  // Footer
   footer: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: Spacing.md, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: Colors.border3, paddingTop: Spacing.md, paddingHorizontal: Spacing.xl },
   footerText: { fontFamily: Fonts.mono, fontSize: 9, letterSpacing: 2.5, color: Colors.text3 },
   footerSep: { width: 3, height: 3, borderRadius: 2, backgroundColor: Colors.border2 },
