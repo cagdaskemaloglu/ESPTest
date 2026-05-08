@@ -2,15 +2,21 @@
  * App.tsx
  * Kök bileşen — router + global state.
  *
- * Bildirim izni:
- *   Uygulama ilk açılışta requestNotificationPermission() çağrılır.
- *   Kullanıcı izin verirse automation bildirimleri çalışır.
- *   İzin reddedilirse uygulama çalışmaya devam eder — bildirimler gelmez.
+ * Splash akışı:
+ *   1. Expo built-in splash (app.json'daki statik görsel) hemen gösterilir
+ *   2. initApp() arka planda çalışır (cihaz kontrolü, izinler)
+ *   3. SplashAnimation bileşeni animasyonu oynatır (3 saniye)
+ *   4. Animasyon bitince ExpoSplash.hideAsync() → asıl ekrana geçiş
+ *
+ * Kurulum:
+ *   npx expo install expo-splash-screen react-native-svg
  */
 
-import { useEffect, useState } from 'react';
-import { ActivityIndicator, StyleSheet, View } from 'react-native';
+import * as ExpoSplash from 'expo-splash-screen';
+import { useCallback, useEffect, useState } from 'react';
+import { StyleSheet, View } from 'react-native';
 
+import SplashAnimation from './components/SplashAnimation';
 import AutomationScreen from './screens/AutomationScreen';
 import ControlScreen from './screens/ControlScreen';
 import DeviceListScreen from './screens/DeviceListScreen';
@@ -29,6 +35,10 @@ import { requestNotificationPermission } from './services/notificationService';
 import { Colors } from './theme/colors';
 import { Device } from './types/Device';
 
+// Expo splash screen'in otomatik kapanmasını engelle
+// Biz animasyonu kendimiz kontrol edeceğiz
+ExpoSplash.preventAutoHideAsync();
+
 type Step =
   | 'loading'
   | 'onboarding'
@@ -41,27 +51,43 @@ type Step =
   | 'presets';
 
 export default function App() {
-  const [step, setStep]                 = useState<Step>('loading');
-  const [activeDevice, setActiveDevice] = useState<Device | null>(null);
+  const [step, setStep]                   = useState<Step>('loading');
+  const [activeDevice, setActiveDevice]   = useState<Device | null>(null);
+  // appReady: initApp tamamlandı mı?
+  const [appReady, setAppReady]           = useState(false);
+  // splashDone: animasyon bitti mi?
+  const [splashDone, setSplashDone]       = useState(false);
 
   useEffect(() => { initApp(); }, []);
 
   const initApp = async () => {
-    // Bildirim iznini uygulama açılışında iste
-    await requestNotificationPermission();
+    try {
+      // Bildirim iznini iste
+      await requestNotificationPermission();
 
-    const devices = await getDevices();
-    const lastId  = await getLastDeviceId();
+      const devices = await getDevices();
+      const lastId  = await getLastDeviceId();
 
-    if (devices.length === 0) {
-      setStep('onboarding');
-      return;
+      if (devices.length === 0) {
+        setStep('onboarding');
+      } else {
+        const last = devices.find((d) => d.id === lastId) ?? devices[0];
+        setActiveDevice(last);
+        setStep('control');
+      }
+    } catch (e) {
+      console.error('initApp hata:', e);
+      setStep('start');
+    } finally {
+      setAppReady(true);
     }
-
-    const last = devices.find((d) => d.id === lastId) ?? devices[0];
-    setActiveDevice(last);
-    setStep('control');
   };
+
+  // Splash animasyonu bitince Expo splash'i gizle
+  const handleSplashFinish = useCallback(async () => {
+    await ExpoSplash.hideAsync();
+    setSplashDone(true);
+  }, []);
 
   const selectDevice = async (device: Device) => {
     setActiveDevice(device);
@@ -69,13 +95,18 @@ export default function App() {
     setStep('control');
   };
 
-  if (step === 'loading') {
-    return (
-      <View style={styles.loading}>
-        <ActivityIndicator color={Colors.cyan} size="large" />
-      </View>
-    );
+  // Uygulama hazır değilse boş ekran göster
+  // (Expo splash hâlâ üstte, kullanıcı görmez)
+  if (!appReady) {
+    return <View style={styles.loading} />;
   }
+
+  // Splash animasyonu henüz bitmedi — SplashAnimation göster
+  if (!splashDone) {
+    return <SplashAnimation onFinish={handleSplashFinish} />;
+  }
+
+  // ── Normal uygulama akışı ──────────────────────────────────────
 
   if (step === 'onboarding') {
     return <OnboardingScreen onDone={() => setStep('start')} />;
@@ -149,14 +180,12 @@ export default function App() {
     );
   }
 
-  return null;
+  return <View style={styles.loading} />;
 }
 
 const styles = StyleSheet.create({
   loading: {
     flex: 1,
     backgroundColor: Colors.bg,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
 });
