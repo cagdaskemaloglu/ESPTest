@@ -2,8 +2,8 @@
  * services/networkScanner.ts
  * Yerel ağda ESP32 cihazlarını arayan servis.
  *
- * /whoami yanıtından type ve capabilities okunur.
- * Eski firmware (type yok) için 'unknown' tipi atanır.
+ * /whoami yanıtından type, capabilities ve pin_required okunur.
+ * pin_required: true ise ScanScreen "PIN gerekli" rozeti gösterir.
  */
 
 import * as Network from 'expo-network';
@@ -22,6 +22,7 @@ export type FoundDevice = {
   type:         DeviceType;
   capabilities: DeviceCapability[];
   leds?:        number;
+  pinRequired:  boolean;  // ESP32'de PIN tanımlı mı?
 };
 
 function fetchWithTimeout(url: string, timeout = TIMEOUT_MS): Promise<Response> {
@@ -43,22 +44,18 @@ async function checkIP(ip: string): Promise<FoundDevice | null> {
   try {
     const res  = await fetchWithTimeout(`http://${ip}/whoami`);
     const data = await res.json();
-
     if (!data.device) return null;
 
-    // type yoksa eski firmware — unknown
-    const type: DeviceType = data.type ?? 'unknown';
-
-    // capabilities yoksa type'a göre varsayılan ata
-    const capabilities: DeviceCapability[] =
-      data.capabilities ?? defaultCapabilities(type);
+    const type: DeviceType         = data.type ?? 'unknown';
+    const capabilities: DeviceCapability[] = data.capabilities ?? defaultCapabilities(type);
 
     return {
       ip,
-      name: data.device,
+      name:        data.device,
       type,
       capabilities,
-      leds: data.leds,
+      leds:        data.leds,
+      pinRequired: data.pin_required === true,
     };
   } catch {}
   return null;
@@ -88,7 +85,7 @@ export async function scanNetwork(callbacks: {
 
     for (const device of results) {
       if (device) {
-        console.log(`✅ FOUND: ${device.ip} [${device.type}]`);
+        console.log(`✅ FOUND: ${device.ip} [${device.type}] PIN:${device.pinRequired}`);
         found.push(device);
         onDeviceFound?.(device);
       }

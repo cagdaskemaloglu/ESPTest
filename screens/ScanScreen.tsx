@@ -2,10 +2,10 @@
  * screens/ScanScreen.tsx
  * Yerel ağdaki tüm ESP32 cihazlarını bulur ve ekler.
  *
- * Cihaz tipi gösterimi:
- *   ws2812b    → "RGB Şerit" + mor rozet
- *   single_led → "Tek LED / Ampul" + sarı rozet
- *   unknown    → "Bilinmiyor" + gri rozet
+ * PIN entegrasyonu:
+ *   - pinRequired: true olan cihazlarda 🔒 rozeti gösterilir
+ *   - Yeni cihaz eklerken PIN girişi istenir
+ *   - Kayıtlı cihaza bağlanırken PIN ControlScreen'de istenir
  */
 
 import { useEffect, useRef, useState } from 'react';
@@ -36,11 +36,19 @@ type Props = {
 const generateId = () =>
   `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
 
-// Cihaz tipi için kullanıcı dostu etiket ve renk
 const TYPE_META: Record<DeviceType, { label: string; color: string; bg: string }> = {
-  ws2812b:    { label: 'RGB Şerit',      color: Colors.purple, bg: Colors.purpleAlpha },
+  ws2812b:    { label: 'RGB Şerit',       color: Colors.purple, bg: Colors.purpleAlpha },
   single_led: { label: 'Tek LED / Ampul', color: Colors.amber,  bg: 'rgba(232,160,32,0.1)' },
+  relay:      { label: 'Röle / Ampul',    color: Colors.amber,  bg: 'rgba(232,160,32,0.1)' },
   unknown:    { label: 'Bilinmiyor',      color: Colors.text3,  bg: Colors.bg4 },
+};
+
+// Yeni cihaz kayıt formu state
+type FormState = {
+  ip:          string;
+  deviceName:  string;
+  pin:         string;
+  pinRequired: boolean;
 };
 
 export default function ScanScreen({ onDeviceAdded, onDeviceSelected, onBack }: Props) {
@@ -48,9 +56,9 @@ export default function ScanScreen({ onDeviceAdded, onDeviceSelected, onBack }: 
   const [progress, setProgress]           = useState({ scanned: 0, total: 254 });
   const [foundDevices, setFoundDevices]   = useState<FoundDevice[]>([]);
   const [registeredDevices, setRegistered] = useState<Device[]>([]);
-  const [selectedIP, setSelectedIP]       = useState<string | null>(null);
-  const [deviceName, setDeviceName]       = useState('');
+  const [form, setForm]                   = useState<FormState | null>(null);
   const [saving, setSaving]               = useState(false);
+  const [pinError, setPinError]           = useState<string | null>(null);
 
   const mountedRef = useRef(true);
 
@@ -62,8 +70,7 @@ export default function ScanScreen({ onDeviceAdded, onDeviceSelected, onBack }: 
   const startScan = async () => {
     setScanning(true);
     setFoundDevices([]);
-    setSelectedIP(null);
-    setDeviceName('');
+    setForm(null);
     setProgress({ scanned: 0, total: 254 });
 
     await scanNetwork({
@@ -97,29 +104,42 @@ export default function ScanScreen({ onDeviceAdded, onDeviceSelected, onBack }: 
         ]
       );
     } else {
-      setSelectedIP(found.ip);
-      setDeviceName('');
+      // Yeni cihaz — isim + PIN formu aç
+      setForm({
+        ip:          found.ip,
+        deviceName:  '',
+        pin:         '',
+        pinRequired: found.pinRequired,
+      });
+      setPinError(null);
     }
   };
 
   const handleSave = async () => {
-    if (!selectedIP || !deviceName.trim()) return;
+    if (!form || !form.deviceName.trim()) return;
+
+    // PIN girilmişse minimum 4 hane kontrolü yap
+    if (form.pin.length > 0 && form.pin.length < 4) {
+      setPinError('PIN en az 4 haneli olmalı');
+      return;
+    }
+
     setSaving(true);
 
-    // Bulunan cihazın tip bilgilerini al
-    const found = foundDevices.find((d) => d.ip === selectedIP);
+    const found = foundDevices.find((d) => d.ip === form.ip);
     const type  = found?.type ?? 'unknown';
 
     const newDevice: Device = {
       id:           generateId(),
-      name:         deviceName.trim(),
-      ip:           selectedIP,
+      name:         form.deviceName.trim(),
+      ip:           form.ip,
       addedAt:      Date.now(),
       brightness:   255,
       color:        { r: 255, g: 255, b: 255 },
       type,
       capabilities: found?.capabilities ?? defaultCapabilities(type),
       leds:         found?.leds,
+      pin:          form.pin,
     };
 
     await addDevice(newDevice);
@@ -137,7 +157,7 @@ export default function ScanScreen({ onDeviceAdded, onDeviceSelected, onBack }: 
         style={styles.kavWrapper}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
-        {/* ── Header ── */}
+        {/* Header */}
         <View style={styles.header}>
           <TouchableOpacity onPress={onBack} style={styles.backBtn}>
             <Text style={styles.backText}>← GERİ</Text>
@@ -181,8 +201,8 @@ export default function ScanScreen({ onDeviceAdded, onDeviceSelected, onBack }: 
             </>
           )}
 
-          {/* Bulunan cihazlar listesi */}
-          {foundDevices.length > 0 && !selectedIP && (
+          {/* Bulunan cihazlar */}
+          {foundDevices.length > 0 && !form && (
             <View style={styles.deviceListSection}>
               <View style={styles.dividerRow}>
                 <View style={styles.dividerLine} />
@@ -209,38 +229,36 @@ export default function ScanScreen({ onDeviceAdded, onDeviceSelected, onBack }: 
                         existing && styles.deviceRowRegistered,
                       ]}
                     >
-                      {/* Sol: durum + bilgi */}
                       <View style={styles.deviceRowLeft}>
                         <View style={[styles.deviceDot, {
                           backgroundColor: existing ? Colors.cyan : Colors.green,
                         }]} />
                         <View style={styles.deviceRowInfo}>
-                          <Text style={styles.deviceRowIp}>{device.ip}</Text>
+                          <View style={styles.deviceIpRow}>
+                            <Text style={styles.deviceRowIp}>{device.ip}</Text>
+                            {/* PIN rozeti */}
+                            {device.pinRequired && (
+                              <View style={styles.pinBadge}>
+                                <Text style={styles.pinBadgeText}>🔒 PIN</Text>
+                              </View>
+                            )}
+                          </View>
 
                           {/* Cihaz tipi rozeti */}
                           <View style={[styles.typeBadge, { backgroundColor: meta.bg }]}>
                             <Text style={[styles.typeBadgeText, { color: meta.color }]}>
                               {meta.label}
+                              {device.leds ? ` · ${device.leds} LED` : ''}
                             </Text>
-                            {device.leds && (
-                              <Text style={[styles.typeBadgeText, { color: meta.color }]}>
-                                {' · '}{device.leds} LED
-                              </Text>
-                            )}
                           </View>
 
-                          {existing && (
-                            <Text style={[styles.deviceRowName, { color: Colors.cyan }]}>
-                              {existing.name}
-                            </Text>
-                          )}
-                          {!existing && (
-                            <Text style={styles.deviceRowNew}>Yeni cihaz — eklemek için bas</Text>
-                          )}
+                          {existing
+                            ? <Text style={[styles.deviceRowName, { color: Colors.cyan }]}>{existing.name}</Text>
+                            : <Text style={styles.deviceRowNew}>Yeni cihaz — eklemek için bas</Text>
+                          }
                         </View>
                       </View>
 
-                      {/* Sağ: rozet veya + */}
                       <View style={styles.deviceRowRight}>
                         {existing ? (
                           <View style={styles.registeredBadge}>
@@ -257,7 +275,7 @@ export default function ScanScreen({ onDeviceAdded, onDeviceSelected, onBack }: 
             </View>
           )}
 
-          {/* Tarama bitti, hiç cihaz yok */}
+          {/* Boş durum */}
           {!scanning && foundDevices.length === 0 && progress.scanned > 0 && (
             <View style={styles.emptyBox}>
               <Text style={styles.emptyText}>Cihaz bulunamadı</Text>
@@ -267,25 +285,30 @@ export default function ScanScreen({ onDeviceAdded, onDeviceSelected, onBack }: 
             </View>
           )}
 
-          {/* İsim formu */}
-          {selectedIP && (
+          {/* Yeni cihaz kayıt formu */}
+          {form && (
             <View style={styles.nameForm}>
+
               {/* Seçilen cihaz bilgisi */}
               <View style={styles.selectedHeader}>
                 <View style={styles.selectedIpRow}>
                   <View style={styles.selectedIpDot} />
                   <Text style={styles.selectedIpLabel}>SEÇİLEN CİHAZ</Text>
-                  <Text style={styles.selectedIpValue}>{selectedIP}</Text>
+                  <Text style={styles.selectedIpValue}>{form.ip}</Text>
+                  {form.pinRequired && (
+                    <View style={styles.pinBadge}>
+                      <Text style={styles.pinBadgeText}>🔒 PIN</Text>
+                    </View>
+                  )}
                 </View>
+
                 {/* Tip rozeti */}
                 {(() => {
-                  const found = foundDevices.find((d) => d.ip === selectedIP);
+                  const found = foundDevices.find((d) => d.ip === form.ip);
                   const meta  = found ? TYPE_META[found.type] : null;
                   return meta ? (
                     <View style={[styles.typeBadge, { backgroundColor: meta.bg }]}>
-                      <Text style={[styles.typeBadgeText, { color: meta.color }]}>
-                        {meta.label}
-                      </Text>
+                      <Text style={[styles.typeBadgeText, { color: meta.color }]}>{meta.label}</Text>
                     </View>
                   ) : null;
                 })()}
@@ -293,37 +316,79 @@ export default function ScanScreen({ onDeviceAdded, onDeviceSelected, onBack }: 
 
               <View style={styles.nameDivider} />
 
+              {/* Cihaz adı */}
               <Text style={styles.fieldLabel}>CİHAZ ADI</Text>
               <TextInput
-                value={deviceName}
-                onChangeText={setDeviceName}
+                value={form.deviceName}
+                onChangeText={(t) => setForm({ ...form, deviceName: t })}
                 placeholder="örn. Salon Lambası"
                 placeholderTextColor={Colors.text3}
-                autoFocus
-                returnKeyType="done"
-                onSubmitEditing={handleSave}
+                autoFocus={!form.pinRequired}
+                returnKeyType={form.pinRequired ? 'next' : 'done'}
+                onSubmitEditing={form.pinRequired ? undefined : handleSave}
                 style={styles.nameInput}
               />
 
+              {/* PIN girişi — opsiyonel */}
+              <Text style={styles.fieldLabel}>CİHAZ PIN'İ (OPSİYONEL)</Text>
+              <TextInput
+                value={form.pin}
+                onChangeText={(t) => {
+                  setForm({ ...form, pin: t.replace(/\D/g, '') });
+                  setPinError(null);
+                }}
+                placeholder={form.pinRequired ? 'Kurulumda belirlediğin PIN' : 'PIN belirlenmediyse boş bırak'}
+                placeholderTextColor={Colors.text3}
+                keyboardType="numeric"
+                secureTextEntry
+                maxLength={6}
+                returnKeyType="done"
+                onSubmitEditing={handleSave}
+                style={[styles.nameInput, pinError && { borderColor: Colors.red }]}
+              />
+              {pinError && (
+                <View style={styles.pinErrorBox}>
+                  <Text style={styles.pinErrorText}>⚠ {pinError}</Text>
+                </View>
+              )}
+              <View style={styles.pinHintBox}>
+                <Text style={styles.pinHintText}>
+                  {form.pinRequired
+                    ? '🔒 Bu cihaz PIN korumalı. Kurulum sırasında belirlediğin PIN\'i gir.'
+                    : 'ℹ️  PIN belirlenmediyse boş bırakabilirsin.'}
+                </Text>
+              </View>
+
+              {/* Kaydet butonu */}
               <TouchableOpacity
                 onPress={handleSave}
-                disabled={!deviceName.trim() || saving}
+                disabled={!form.deviceName.trim() || saving}
                 activeOpacity={0.75}
-                style={[styles.saveBtn, (!deviceName.trim() || saving) && styles.saveBtnDisabled]}
+                style={[
+                  styles.saveBtn,
+                  (!form.deviceName.trim() || saving) && styles.saveBtnDisabled,
+                ]}
               >
-                <Text style={[styles.saveBtnText, (!deviceName.trim() || saving) && styles.saveBtnTextDisabled]}>
+                <Text style={[
+                  styles.saveBtnText,
+                  (!form.deviceName.trim() || saving) && styles.saveBtnTextDisabled,
+                ]}>
                   {saving ? '[ KAYDEDİLİYOR... ]' : '[ KAYDET ve BAĞLAN ]'}
                 </Text>
               </TouchableOpacity>
 
-              <TouchableOpacity onPress={() => setSelectedIP(null)} activeOpacity={0.75} style={styles.cancelBtn}>
+              <TouchableOpacity
+                onPress={() => { setForm(null); setPinError(null); }}
+                activeOpacity={0.75}
+                style={styles.cancelBtn}
+              >
                 <Text style={styles.cancelBtnText}>← Listeye Dön</Text>
               </TouchableOpacity>
             </View>
           )}
 
           {/* Tarama butonu */}
-          {!selectedIP && (
+          {!form && (
             <>
               {foundDevices.length === 0 && (
                 <View style={styles.dividerRow}>
@@ -394,7 +459,10 @@ const styles = StyleSheet.create({
   deviceRowLeft: { flexDirection: 'row', alignItems: 'flex-start', gap: Spacing.md, flex: 1 },
   deviceDot: { width: 8, height: 8, borderRadius: 4, flexShrink: 0, marginTop: 4 },
   deviceRowInfo: { flex: 1, gap: Spacing.xs },
+  deviceIpRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
   deviceRowIp: { fontFamily: Fonts.mono, fontSize: 13, letterSpacing: 1.5, color: Colors.text },
+  pinBadge: { paddingHorizontal: Spacing.sm, paddingVertical: 2, borderRadius: Radius.sm, backgroundColor: Colors.bg4, borderWidth: 1, borderColor: Colors.border2 },
+  pinBadgeText: { fontFamily: Fonts.mono, fontSize: 8, letterSpacing: 1, color: Colors.text2 },
   typeBadge: { flexDirection: 'row', alignSelf: 'flex-start', paddingHorizontal: Spacing.sm, paddingVertical: 2, borderRadius: Radius.sm },
   typeBadgeText: { fontFamily: Fonts.mono, fontSize: 9, letterSpacing: 1 },
   deviceRowName: { fontFamily: Fonts.sans, fontSize: 12, color: Colors.text2 },
@@ -408,13 +476,17 @@ const styles = StyleSheet.create({
   emptySubText: { fontFamily: Fonts.mono, fontSize: 11, letterSpacing: 1, color: Colors.text3, textAlign: 'center' },
   nameForm: { borderWidth: 1, borderColor: Colors.cyan2, borderRadius: Radius.md, backgroundColor: Colors.cyanAlpha, padding: Spacing.lg, gap: Spacing.md },
   selectedHeader: { gap: Spacing.sm },
-  selectedIpRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
+  selectedIpRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, flexWrap: 'wrap' },
   selectedIpDot: { width: 6, height: 6, borderRadius: 999, backgroundColor: Colors.cyan },
   selectedIpLabel: { fontFamily: Fonts.mono, fontSize: 8, letterSpacing: 3, color: Colors.cyan },
   selectedIpValue: { fontFamily: Fonts.mono, fontSize: 14, letterSpacing: 2, color: Colors.text },
   nameDivider: { height: StyleSheet.hairlineWidth, backgroundColor: Colors.border },
   fieldLabel: { fontFamily: Fonts.mono, fontSize: 9, letterSpacing: 3, color: Colors.text3 },
   nameInput: { backgroundColor: Colors.bg2, borderWidth: 1, borderColor: Colors.border, borderRadius: Radius.sm, paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm, fontFamily: Fonts.mono, fontSize: 14, letterSpacing: 1, color: Colors.text },
+  pinErrorBox: { borderWidth: 1, borderColor: Colors.red, borderRadius: Radius.sm, backgroundColor: Colors.redAlpha, padding: Spacing.sm },
+  pinErrorText: { fontFamily: Fonts.mono, fontSize: 11, letterSpacing: 1, color: Colors.red },
+  pinHintBox: { borderWidth: 1, borderColor: Colors.border2, borderRadius: Radius.sm, backgroundColor: Colors.bg4, padding: Spacing.sm },
+  pinHintText: { fontFamily: Fonts.mono, fontSize: 10, letterSpacing: 1, color: Colors.text3, lineHeight: 16 },
   saveBtn: { borderWidth: 1, borderColor: Colors.cyan2, borderRadius: Radius.sm, backgroundColor: Colors.bg2, paddingVertical: Spacing.md, alignItems: 'center' },
   saveBtnDisabled: { borderColor: Colors.border, backgroundColor: Colors.bg3 },
   saveBtnText: { fontFamily: Fonts.mono, fontSize: 12, letterSpacing: 2, color: Colors.cyan },

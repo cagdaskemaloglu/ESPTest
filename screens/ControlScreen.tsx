@@ -1,15 +1,12 @@
 /**
  * screens/ControlScreen.tsx
- * Cihaz yeteneklerine göre dinamik UI render eder.
+ * ESP32 kontrol ekranı — PIN korumalı API ile çalışır.
  *
- * Yetenek kontrolü:
- *   on_off     → her zaman: toggle butonu + lamba animasyonu
- *   brightness → parlaklık slider gösterilir
- *   color      → renk picker accordion gösterilir
- *   effects    → 🎬 sahne butonu header'da gösterilir
- *
- * WS2812B   → tüm kontroller
- * SingleLED → sadece toggle + brightness
+ * PIN akışı:
+ *   - Her istek createAPI() üzerinden PIN ile gönderilir
+ *   - 403 gelirse onUnauthorized tetiklenir → PinScreen açılır
+ *   - Kullanıcı doğru PIN'i girince AsyncStorage güncellenir
+ *   - device.pin boşsa (eski kayıt) PinScreen 'setup' modunda açılır
  */
 
 import Slider from '@react-native-community/slider';
@@ -27,8 +24,10 @@ import {
   View,
 } from 'react-native';
 import ColorPicker from '../components/ColorPicker';
+import PinScreen from '../components/PinScreen';
 import { useConnectionStatus } from '../hooks/useConnectionStatus';
-import { saveBrightness, saveColor } from '../services/deviceStorage';
+import { createAPI } from '../services/apiService';
+import { saveBrightness, saveColor, savePin } from '../services/deviceStorage';
 import { Colors, Fonts, Radius, Spacing } from '../theme/colors';
 import { Device, hasCapability } from '../types/Device';
 
@@ -64,7 +63,14 @@ export default function ControlScreen({
   const [errorMsg, setErrorMsg]         = useState<string | null>(null);
   const [activeEffect, setActiveEffect] = useState<string | null>(null);
 
-  // Yetenek kısayolları
+  // PIN ekranı state
+  const [showPinScreen, setShowPinScreen] = useState(false);
+  const [pinScreenMode, setPinScreenMode] = useState<'enter' | 'setup'>('enter');
+  const [pinError, setPinError]           = useState<string | null>(null);
+  const [pinLoading, setPinLoading]       = useState(false);
+  // Güncel PIN — device.pin ile başlar, kullanıcı girince güncellenir
+  const [currentPin, setCurrentPin]       = useState(device.pin ?? '');
+
   const hasBrightness = hasCapability(device, 'brightness');
   const hasColor      = hasCapability(device, 'color');
   const hasEffects    = hasCapability(device, 'effects');
@@ -78,11 +84,21 @@ export default function ControlScreen({
 
   const { status: connStatus, latency } = useConnectionStatus(device.ip);
 
-  // Yeniden bağlanınca sync
+  // API instance — currentPin değişince yeniden oluşturulur
+  const api = createAPI(device.ip, currentPin, () => {
+    // 403 geldi — PIN ekranını aç
+    setPinError(null);
+    setPinScreenMode('enter');
+    setShowPinScreen(true);
+  });
+
   useEffect(() => {
     if (prevStatus.current !== 'online' && connStatus === 'online') syncState();
     prevStatus.current = connStatus;
   }, [connStatus]);
+
+  // Cihaz PIN'i yoksa PIN ekranı açılmaz — PIN opsiyonel
+  // Sadece 403 gelirse PIN ekranı açılır (checkPIN false döndü)
 
   const showError = (msg: string) => {
     setErrorMsg(msg);
@@ -94,6 +110,7 @@ export default function ControlScreen({
     setIsOn(false);
     setPickerOpen(false);
     setActiveEffect(null);
+    setCurrentPin(device.pin ?? '');
     setBrightness(Math.round((device.brightness ?? 255) / 255 * 100));
     setColor({ r: device.color?.r ?? 255, g: device.color?.g ?? 255, b: device.color?.b ?? 255 });
     anim.setValue(0);
@@ -103,22 +120,19 @@ export default function ControlScreen({
   }, [device.id]);
 
   const syncState = async () => {
-    try {
-      const res  = await fetch(`http://${device.ip}/led/state`);
-      const data = await res.json();
-      if (data.on         !== undefined) setIsOn(data.on);
-      if (data.r          !== undefined) setColor({ r: data.r, g: data.g, b: data.b });
-      if (data.brightness !== undefined) setBrightness(Math.round(data.brightness / 255 * 100));
-      if (data.effect     !== undefined) setActiveEffect(data.effect === 'off' ? null : data.effect);
-    } catch {}
+    const res = await api.get('/led/state');
+    if (!res.ok) return;
+    const data = res.data;
+    if (data.on         !== undefined) setIsOn(data.on);
+    if (data.r          !== undefined) setColor({ r: data.r, g: data.g, b: data.b });
+    if (data.brightness !== undefined) setBrightness(Math.round(data.brightness / 255 * 100));
+    if (data.effect     !== undefined) setActiveEffect(data.effect === 'off' ? null : data.effect);
   };
 
   useEffect(() => {
     Animated.timing(anim, {
-      toValue: isOn ? 1 : 0,
-      duration: 500,
-      easing: Easing.out(Easing.cubic),
-      useNativeDriver: false,
+      toValue: isOn ? 1 : 0, duration: 500,
+      easing: Easing.out(Easing.cubic), useNativeDriver: false,
     }).start();
 
     if (isOn) {
@@ -141,14 +155,17 @@ export default function ControlScreen({
     setPickerOpen((p) => !p);
   };
 
+  // ── ESP32 iletişim ────────────────────────────────────────────────────────
   const toggle = async () => {
     if (connStatus === 'offline') { showError('Cihaza ulaşılamıyor'); return; }
     const path = isOn ? '/led/off' : '/led/on';
-    try {
-      await fetch(`http://${device.ip}${path}`);
+    const res  = await api.get(path);
+    if (res.ok) {
       setIsOn(!isOn);
       if (isOn) setActiveEffect(null);
-    } catch { showError('Bağlantı hatası'); }
+    } else if (res.error?.type !== 'unauthorized') {
+      showError('Bağlantı hatası');
+    }
   };
 
   const handleSliderChange = (value: number) => {
@@ -157,8 +174,7 @@ export default function ControlScreen({
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(async () => {
       if (connStatus === 'offline') return;
-      try { await fetch(`http://${device.ip}/led/brightness?value=${Math.round(pct / 100 * 255)}`); }
-      catch {}
+      await api.get('/led/brightness', { value: String(Math.round(pct / 100 * 255)) });
     }, 300);
   };
 
@@ -166,16 +182,51 @@ export default function ControlScreen({
     const pct = Math.round(value);
     const esp = Math.round(pct / 100 * 255);
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    if (connStatus !== 'offline') {
-      try { await fetch(`http://${device.ip}/led/brightness?value=${esp}`); } catch {}
-    }
+    await api.get('/led/brightness', { value: String(esp) });
     await saveBrightness(device.id, esp);
   };
 
   const handleColorChange = async (r: number, g: number, b: number) => {
     setColor({ r, g, b });
-    try { await fetch(`http://${device.ip}/led/color?r=${r}&g=${g}&b=${b}`); } catch {}
+    await api.get('/led/color', { r: String(r), g: String(g), b: String(b) });
     await saveColor(device.id, { r, g, b });
+  };
+
+  // ── PIN ekranı işlemleri ──────────────────────────────────────────────────
+  const handlePinSubmit = async (enteredPin: string) => {
+    setPinLoading(true);
+    setPinError(null);
+
+    // Girilen PIN ile /led/state çek — doğruysa geçer, yanlışsa 403 döner
+    const testApi = createAPI(device.ip, enteredPin);
+    const res     = await testApi.get('/led/state');
+
+    if (res.ok) {
+      // PIN doğru — kaydet ve ekranı kapat
+      setCurrentPin(enteredPin);
+      await savePin(device.id, enteredPin);
+      setShowPinScreen(false);
+      setPinError(null);
+      // Gelen state ile senkronize et
+      const data = res.data;
+      if (data.on         !== undefined) setIsOn(data.on);
+      if (data.brightness !== undefined) setBrightness(Math.round(data.brightness / 255 * 100));
+    } else if (res.error?.type === 'unauthorized') {
+      setPinError('PIN hatalı. Tekrar dene.');
+    } else if (res.error?.type === 'timeout' || res.error?.type === 'network') {
+      setPinError('Cihaza ulaşılamadı. Bağlantını kontrol et.');
+    } else {
+      setPinError('Beklenmeyen hata. Tekrar dene.');
+    }
+
+    setPinLoading(false);
+  };
+
+  const handlePinCancel = () => {
+    setShowPinScreen(false);
+    setPinError(null);
+    // PIN bilinmiyorsa listeye dön
+    if (!currentPin) onOpenList();
   };
 
   // ── Interpolasyonlar ──────────────────────────────────────────────────────
@@ -206,15 +257,25 @@ export default function ControlScreen({
         {Array.from({ length: 18 }).map((_, i) => <View key={i} style={styles.scanline} />)}
       </View>
 
+      {/* PIN Ekranı — 403 veya PIN bilinmiyorsa */}
+      {showPinScreen && (
+        <PinScreen
+          deviceName={device.name}
+          mode={pinScreenMode}
+          onSubmit={handlePinSubmit}
+          onCancel={handlePinCancel}
+          error={pinError}
+          isLoading={pinLoading}
+        />
+      )}
+
       {/* ── Header ───────────────────────────────────────────────── */}
       <View style={styles.header}>
         <TouchableOpacity onPress={onOpenList} style={styles.deviceNameBtn}>
           <Text style={styles.deviceNameLabel}>AKTİF CİHAZ</Text>
           <Text style={styles.deviceName} numberOfLines={1}>{device.name} ›</Text>
         </TouchableOpacity>
-
         <View style={styles.headerRight}>
-          {/* Bağlantı noktası */}
           <View style={[styles.connDot, { backgroundColor: connDotColor }]} />
           {connStatus === 'online'  && latency !== null && (
             <Text style={styles.latencyText}>{latency}ms</Text>
@@ -222,21 +283,22 @@ export default function ControlScreen({
           {connStatus === 'offline' && (
             <Text style={styles.offlineText}>OFFLINE</Text>
           )}
-
-          {/* Aktif efekt rozeti */}
           {activeEffect && (
             <View style={styles.effectBadge}>
               <Text style={styles.effectBadgeText}>FX</Text>
             </View>
           )}
-
-          {/* Sahneler — sadece effects yeteneği varsa */}
+          {/* PIN koruması aktif rozeti */}
+          {currentPin !== '' && (
+            <View style={styles.pinBadge}>
+              <Text style={styles.pinBadgeText}>🔒</Text>
+            </View>
+          )}
           {hasEffects && (
             <TouchableOpacity onPress={onOpenPresets} style={styles.headerBtn}>
               <Text style={styles.headerBtnText}>🎬</Text>
             </TouchableOpacity>
           )}
-
           <TouchableOpacity onPress={onOpenAutomation} style={styles.headerBtn}>
             <Text style={styles.headerBtnText}>⏱</Text>
           </TouchableOpacity>
@@ -248,26 +310,20 @@ export default function ControlScreen({
 
       <View style={styles.headerDivider} />
 
-      {/* IP + cihaz tipi */}
       <View style={styles.ipRow}>
         <Text style={styles.ipLabel}>BAĞLANTI //</Text>
         <Text style={styles.ipValue}>{device.ip}</Text>
         <Text style={styles.ipLabel}> · </Text>
         <Text style={[styles.ipValue, {
-          color: device.type === 'ws2812b' ? Colors.purple :
-                 device.type === 'single_led' ? Colors.amber : Colors.text3,
+          color: device.type === 'ws2812b'    ? Colors.purple :
+                 device.type === 'single_led' ? Colors.amber  : Colors.text3,
         }]}>
           {device.type === 'ws2812b'    ? 'RGB ŞERİT' :
-           device.type === 'single_led' ? 'TEK LED'   : 'BİLİNMİYOR'}
+           device.type === 'single_led' ? 'TEK LED'   :
+           device.type === 'relay'      ? 'RÖLE'      : 'BİLİNMİYOR'}
         </Text>
-        {activeEffect && (
-          <Text style={[styles.ipValue, { color: Colors.purple }]}>
-            {' '}· {activeEffect.toUpperCase()}
-          </Text>
-        )}
       </View>
 
-      {/* Hata banner */}
       {errorMsg && (
         <View style={styles.errorBanner}>
           <Text style={styles.errorBannerText}>⚠ {errorMsg}</Text>
@@ -281,35 +337,23 @@ export default function ControlScreen({
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
-
-        {/* ── Lamba — her cihaz tipinde gösterilir ─────────────── */}
+        {/* ── Lamba ── */}
         <View style={styles.lampSection}>
           <Animated.View pointerEvents="none" style={[styles.glowPool, { opacity: glowOpacity, shadowColor: colorCss }]} />
-
           <Animated.View style={[styles.ringOuter, { borderColor, transform: [{ scale: pulse }] }]}>
             <Animated.View style={[styles.ringMiddle, { borderColor, backgroundColor: ringBg }]}>
               <TouchableOpacity onPress={toggle} activeOpacity={0.75}>
-                <Animated.View style={[styles.bulbButton, {
-                  borderColor, backgroundColor: bulbBtnBg,
-                  shadowColor: colorCss, shadowOpacity, shadowRadius,
-                }]}>
+                <Animated.View style={[styles.bulbButton, { borderColor, backgroundColor: bulbBtnBg, shadowColor: colorCss, shadowOpacity, shadowRadius }]}>
                   <View style={styles.bulbIconWrapper}>
-                    <Animated.View style={[styles.bulbGlass, {
-                      backgroundColor: isOn ? colorCss : Colors.bg3,
-                      borderColor:     isOn ? colorCss : Colors.border2,
-                    }]}>
+                    <Animated.View style={[styles.bulbGlass, { backgroundColor: isOn ? colorCss : Colors.bg3, borderColor: isOn ? colorCss : Colors.border2 }]}>
                       <Animated.View style={[styles.bulbCore, { opacity: glowOpacity }]} />
                     </Animated.View>
                     <Animated.View style={[styles.bulbBase, { backgroundColor: isOn ? colorCss : Colors.border }]} />
                     <Animated.View style={[styles.bulbNeck, { backgroundColor: isOn ? Colors.border2 : Colors.border }]} />
                   </View>
-
-                  {/* Işınlar — sadece color yeteneği varsa */}
                   {hasColor && [0, 45, 90, 135, 180, 225, 270, 315].map((angle) => (
                     <Animated.View key={angle} pointerEvents="none" style={[styles.ray, {
-                      opacity: glowOpacity,
-                      backgroundColor: colorCss,
-                      shadowColor: colorCss,
+                      opacity: glowOpacity, backgroundColor: colorCss, shadowColor: colorCss,
                       transform: [{ rotate: `${angle}deg` }, { translateY: -44 }],
                     }]} />
                   ))}
@@ -334,7 +378,7 @@ export default function ControlScreen({
           </View>
         </View>
 
-        {/* ── Toggle butonu ─────────────────────────────────────── */}
+        {/* Toggle */}
         <TouchableOpacity onPress={toggle} activeOpacity={0.8}>
           <Animated.View style={[styles.toggleBtn, { borderColor, backgroundColor: toggleBg }]}>
             <Animated.Text style={[styles.toggleTextOff, { opacity: labelOffOp }]}>[ YAK ]</Animated.Text>
@@ -342,7 +386,7 @@ export default function ControlScreen({
           </Animated.View>
         </TouchableOpacity>
 
-        {/* ── Parlaklık slider — brightness yeteneği varsa ─────── */}
+        {/* Brightness */}
         {hasBrightness && (
           <Animated.View style={[styles.sliderSection, { opacity: sliderOp }]}>
             <View style={styles.sliderHeader}>
@@ -367,7 +411,7 @@ export default function ControlScreen({
           </Animated.View>
         )}
 
-        {/* ── Renk picker — color yeteneği varsa ───────────────── */}
+        {/* Color picker */}
         {hasColor && (
           <View style={styles.colorAccordion}>
             <TouchableOpacity onPress={togglePicker} activeOpacity={0.8} style={styles.colorBtn}>
@@ -384,16 +428,13 @@ export default function ControlScreen({
             {pickerOpen && (
               <View style={styles.colorPanel}>
                 <View style={styles.colorPanelDivider} />
-                <ColorPicker
-                  initialR={color.r} initialG={color.g} initialB={color.b}
-                  onChange={handleColorChange}
-                />
+                <ColorPicker initialR={color.r} initialG={color.g} initialB={color.b} onChange={handleColorChange} />
               </View>
             )}
           </View>
         )}
 
-        {/* ── SingleLED bilgi notu — color/effects yoksa ───────── */}
+        {/* SingleLED notu */}
         {!hasColor && !hasEffects && (
           <View style={styles.infoNote}>
             <Text style={styles.infoNoteTitle}>TEK KANAL LED</Text>
@@ -406,7 +447,7 @@ export default function ControlScreen({
 
       </ScrollView>
 
-      {/* ── Footer ───────────────────────────────────────────────── */}
+      {/* Footer */}
       <View style={styles.footer}>
         <Text style={styles.footerText}>37.0° N · 35.3° E</Text>
         <View style={styles.footerSep} />
@@ -421,7 +462,6 @@ const styles = StyleSheet.create({
   root: { flex: 1, paddingTop: 56 },
   scanlines: { ...StyleSheet.absoluteFillObject, justifyContent: 'space-around', opacity: 0.025 },
   scanline: { width: '100%', height: StyleSheet.hairlineWidth, backgroundColor: Colors.cyan },
-
   header: { width: '100%', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', paddingTop: Spacing.lg, paddingHorizontal: Spacing.xl },
   deviceNameBtn: { gap: 2, flex: 1 },
   deviceNameLabel: { fontFamily: Fonts.mono, fontSize: 8, letterSpacing: 3, color: Colors.text3 },
@@ -432,20 +472,18 @@ const styles = StyleSheet.create({
   offlineText: { fontFamily: Fonts.mono, fontSize: 9, letterSpacing: 2, color: Colors.red },
   effectBadge: { paddingHorizontal: 5, paddingVertical: 2, borderRadius: Radius.sm, borderWidth: 1, borderColor: Colors.purple, backgroundColor: Colors.purpleAlpha },
   effectBadgeText: { fontFamily: Fonts.mono, fontSize: 8, letterSpacing: 2, color: Colors.purple },
+  pinBadge: { paddingHorizontal: 4, paddingVertical: 2 },
+  pinBadgeText: { fontSize: 12 },
   headerBtn: { width: 28, height: 28, borderRadius: Radius.sm, borderWidth: 1, borderColor: Colors.border2, backgroundColor: Colors.bg3, alignItems: 'center', justifyContent: 'center' },
   headerBtnText: { fontFamily: Fonts.mono, fontSize: 13, color: Colors.cyan, lineHeight: 17 },
   headerDivider: { height: StyleSheet.hairlineWidth, backgroundColor: Colors.border, marginTop: Spacing.md, marginHorizontal: Spacing.xl },
-
   ipRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.xs, marginTop: Spacing.md, paddingHorizontal: Spacing.xl, flexWrap: 'wrap' },
   ipLabel: { fontFamily: Fonts.mono, fontSize: 10, letterSpacing: 3, color: Colors.text3 },
   ipValue: { fontFamily: Fonts.mono, fontSize: 11, letterSpacing: 1.5, color: Colors.cyan },
-
   errorBanner: { marginHorizontal: Spacing.xl, marginTop: Spacing.sm, paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm, backgroundColor: Colors.redAlpha, borderWidth: 1, borderColor: Colors.red, borderRadius: Radius.sm },
   errorBannerText: { fontFamily: Fonts.mono, fontSize: 11, letterSpacing: 1, color: Colors.red },
-
   scroll: { flex: 1 },
   scrollContent: { paddingHorizontal: Spacing.xl, paddingBottom: Spacing.xl, gap: Spacing.xl, paddingTop: Spacing.lg },
-
   lampSection: { alignItems: 'center', gap: Spacing.lg },
   glowPool: { position: 'absolute', bottom: -10, alignSelf: 'center', width: 240, height: 60, borderRadius: 120, backgroundColor: 'transparent', shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.5, shadowRadius: 40, elevation: 0 },
   ringOuter: { width: 200, height: 200, borderRadius: 999, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
@@ -462,11 +500,9 @@ const styles = StyleSheet.create({
   stateOn:  { position: 'absolute', fontFamily: Fonts.mono, fontSize: 11, letterSpacing: 4 },
   progressTrack: { width: 100, height: 1, backgroundColor: Colors.border, overflow: 'hidden' },
   progressFill: { height: '100%', shadowOffset: { width: 0, height: 0 }, shadowOpacity: 1, shadowRadius: 4, elevation: 2 },
-
   toggleBtn: { width: '100%', height: 50, borderWidth: 1, borderRadius: Radius.sm, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
   toggleTextOff: { position: 'absolute', fontFamily: Fonts.mono, fontSize: 14, letterSpacing: 3, color: Colors.text2 },
   toggleTextOn:  { position: 'absolute', fontFamily: Fonts.mono, fontSize: 14, letterSpacing: 3 },
-
   sliderSection: { gap: 4 },
   sliderHeader: { flexDirection: 'row', justifyContent: 'space-between' },
   sliderLabel: { fontFamily: Fonts.mono, fontSize: 9, letterSpacing: 3, color: Colors.text3 },
@@ -474,7 +510,6 @@ const styles = StyleSheet.create({
   slider: { width: '100%', height: 28, marginVertical: 2 },
   sliderTicks: { flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 4 },
   sliderTick: { fontFamily: Fonts.mono, fontSize: 8, letterSpacing: 1, color: Colors.text3 },
-
   colorAccordion: { borderWidth: 1, borderColor: Colors.border, borderRadius: Radius.md, backgroundColor: Colors.bg3, overflow: 'hidden' },
   colorBtn: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: Spacing.lg, paddingVertical: Spacing.md, gap: Spacing.md },
   colorBtnLeft: { flex: 1, gap: 2 },
@@ -487,12 +522,9 @@ const styles = StyleSheet.create({
   colorChevronOpen: { transform: [{ rotate: '90deg' }] },
   colorPanel: { paddingHorizontal: Spacing.lg, paddingBottom: Spacing.lg },
   colorPanelDivider: { height: StyleSheet.hairlineWidth, backgroundColor: Colors.border, marginBottom: Spacing.lg },
-
-  // SingleLED bilgi notu
   infoNote: { borderWidth: 1, borderColor: Colors.border, borderRadius: Radius.md, backgroundColor: Colors.bg3, padding: Spacing.lg, gap: Spacing.sm },
   infoNoteTitle: { fontFamily: Fonts.mono, fontSize: 9, letterSpacing: 3, color: Colors.amber },
   infoNoteText: { fontFamily: Fonts.sans, fontSize: 13, color: Colors.text2, lineHeight: 20 },
-
   footer: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: Colors.border3, paddingTop: Spacing.md, paddingBottom: Spacing.xl, paddingHorizontal: Spacing.xl, justifyContent: 'center' },
   footerText: { fontFamily: Fonts.mono, fontSize: 9, letterSpacing: 2.5, color: Colors.text3 },
   footerSep: { width: 3, height: 3, borderRadius: 2, backgroundColor: Colors.border2 },

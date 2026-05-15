@@ -146,6 +146,7 @@ export default function App() {
         onSelect={(device) => selectDevice(device)}
         onAddNew={() => setStep('scan')}
         onBack={() => setStep('control')}
+        onStart={() => setStep('start')}
       />
     );
   }

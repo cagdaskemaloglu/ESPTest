@@ -33,6 +33,7 @@ type Props = {
   onSelect:  (device: Device) => void;
   onAddNew:  () => void;
   onBack:    () => void;
+  onStart:   () => void;  // Hiç cihaz kalmayınca başlangıca git
 };
 
 export default function DeviceListScreen({
@@ -40,6 +41,7 @@ export default function DeviceListScreen({
   onSelect,
   onAddNew,
   onBack,
+  onStart,
 }: Props) {
   const [devices, setDevices]         = useState<Device[]>([]);
   const [editingId, setEditingId]     = useState<string | null>(null);
@@ -65,8 +67,15 @@ export default function DeviceListScreen({
           style: 'destructive',
           onPress: async () => {
             await removeDevice(device.id);
-            await loadDevices();
-            if (device.id === activeDeviceId) onBack();
+            const remaining = await getDevices();
+            if (remaining.length === 0) {
+              // Hiç cihaz kalmadı — başlangıç ekranına git
+              onStart();
+            } else {
+              await loadDevices();
+              // Aktif cihaz silindiyse listeye dön
+              if (device.id === activeDeviceId) onBack();
+            }
           },
         },
       ]
@@ -120,9 +129,8 @@ export default function DeviceListScreen({
       const res = await fetch(`http://${device.ip}/factory-reset`);
 
       if (res.ok) {
-        // Başarılı — cihazı listeden kaldır
         await removeDevice(device.id);
-        await loadDevices();
+        const remaining = await getDevices();
 
         Alert.alert(
           'Sıfırlama Tamamlandı',
@@ -131,7 +139,14 @@ export default function DeviceListScreen({
           `Yeniden kurmak için:\n` +
           `1. "ESP32-Setup" ağına bağlan\n` +
           `2. Kurulum ekranından WiFi bilgilerini gir`,
-          [{ text: 'Tamam', onPress: () => { if (device.id === activeDeviceId) onBack(); } }]
+          [{
+            text: 'Tamam',
+            onPress: () => {
+              if (remaining.length === 0) onStart();
+              else if (device.id === activeDeviceId) onBack();
+              else loadDevices();
+            },
+          }]
         );
       } else {
         throw new Error('Sunucu hatası');
@@ -153,8 +168,10 @@ export default function DeviceListScreen({
             style: 'destructive',
             onPress: async () => {
               await removeDevice(device.id);
-              await loadDevices();
-              if (device.id === activeDeviceId) onBack();
+              const remaining = await getDevices();
+              if (remaining.length === 0) onStart();
+              else if (device.id === activeDeviceId) onBack();
+              else loadDevices();
             },
           },
         ]

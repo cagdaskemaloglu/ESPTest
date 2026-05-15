@@ -1,22 +1,19 @@
 /**
  * services/deviceStorage.ts
  * AsyncStorage üzerinde cihaz listesi için CRUD işlemleri.
- *
- * Geriye dönük uyumluluk:
- *   Eski kayıtlarda type/capabilities yoksa varsayılan değerler atanır.
+ * pin alanı normalize edildi — eski kayıtlarda pin yoksa boş string atanır.
  */
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   Device,
   DeviceType,
-  defaultCapabilities
+  defaultCapabilities,
 } from '../types/Device';
 
 const STORAGE_KEY = 'torva_devices';
 const LAST_KEY    = 'torva_last_device';
 
-// Eski kayıtlara eksik alanları ekle — geriye dönük uyumluluk
 function normalize(d: any): Device {
   const type: DeviceType = d.type ?? 'unknown';
   return {
@@ -29,6 +26,7 @@ function normalize(d: any): Device {
     type,
     capabilities: d.capabilities ?? defaultCapabilities(type),
     leds:         d.leds,
+    pin:          d.pin ?? '',  // Eski kayıtlarda pin yoksa boş
   };
 }
 
@@ -36,8 +34,7 @@ export async function getDevices(): Promise<Device[]> {
   try {
     const raw = await AsyncStorage.getItem(STORAGE_KEY);
     if (!raw) return [];
-    const list = JSON.parse(raw) as any[];
-    return list.map(normalize);
+    return (JSON.parse(raw) as any[]).map(normalize);
   } catch (e) {
     console.error('getDevices hata:', e);
     return [];
@@ -46,9 +43,11 @@ export async function getDevices(): Promise<Device[]> {
 
 export async function addDevice(device: Device): Promise<void> {
   try {
-    const current     = await getDevices();
-    const alreadyExists = current.some((d) => d.ip === device.ip);
-    if (alreadyExists) { console.log('Cihaz zaten kayıtlı:', device.ip); return; }
+    const current = await getDevices();
+    if (current.some((d) => d.ip === device.ip)) {
+      console.log('Cihaz zaten kayıtlı:', device.ip);
+      return;
+    }
     await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify([...current, device]));
   } catch (e) { console.error('addDevice hata:', e); }
 }
@@ -88,6 +87,16 @@ export async function saveColor(
       current.map((d) => d.id === id ? { ...d, color } : d)
     ));
   } catch (e) { console.error('saveColor hata:', e); }
+}
+
+// PIN güncelle — cihaz ayarlarından PIN değiştirilirse
+export async function savePin(id: string, pin: string): Promise<void> {
+  try {
+    const current = await getDevices();
+    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(
+      current.map((d) => d.id === id ? { ...d, pin } : d)
+    ));
+  } catch (e) { console.error('savePin hata:', e); }
 }
 
 export async function saveLastDeviceId(id: string): Promise<void> {
