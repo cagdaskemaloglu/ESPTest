@@ -67,6 +67,8 @@ export default function SetupScreen({ onDone }: Props) {
   const [pinError, setPinError]   = useState<string | null>(null);
   // Manuel SSID girişi — varsayılan kapalı
   const [showManualInput, setShowManualInput] = useState(false);
+  // Dropdown — tarama bitince otomatik açılır, seçince kapanır
+  const [showDropdown, setShowDropdown] = useState(false);
 
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const mountedRef  = useRef(true);
@@ -119,6 +121,7 @@ export default function SetupScreen({ onDone }: Props) {
         setWifiError('Çevrede ağ bulunamadı. Tekrar dene.');
       } else {
         setWifiList(data.filter((n) => n.ssid.trim() !== '').sort((a, b) => b.rssi - a.rssi));
+        setShowDropdown(true); // Tarama bitince otomatik aç
       }
     } catch {
       if (!mountedRef.current) return;
@@ -309,44 +312,67 @@ export default function SetupScreen({ onDone }: Props) {
 
             {/* WiFi dropdown listesi */}
             {!scanningWifi && wifiList.length > 0 && (
-              <View style={styles.wifiList}>
-                {wifiList.map((network, idx) => (
-                  <TouchableOpacity
-                    key={`${network.ssid}-${idx}`}
-                    onPress={() => {
-                      setSsid(network.ssid);
-                      setShowManualInput(false);
-                    }}
-                    activeOpacity={0.75}
-                    style={[
-                      styles.wifiItem,
-                      ssid === network.ssid && !showManualInput && styles.wifiItemSelected,
-                      idx === wifiList.length - 1 && { borderBottomWidth: 0 },
-                    ]}
-                  >
-                    <View style={styles.wifiItemLeft}>
-                      <View style={[styles.wifiItemDot, {
-                        backgroundColor: ssid === network.ssid && !showManualInput
-                          ? Colors.cyan : Colors.border2,
-                      }]} />
-                      <Text style={[
-                        styles.wifiItemSsid,
-                        ssid === network.ssid && !showManualInput && { color: Colors.cyan },
-                      ]}>
-                        {network.ssid}
-                      </Text>
-                    </View>
-                    <View style={styles.wifiItemRight}>
-                      <Text style={styles.wifiItemBars}>{signalBars(network.rssi)}</Text>
-                      <Text style={styles.wifiItemLabel}>{signalLabel(network.rssi)}</Text>
-                    </View>
-                  </TouchableOpacity>
-                ))}
+              <View style={styles.wifiDropdown}>
+
+                {/* Dropdown başlık — tıklayınca aç/kapat */}
+                <TouchableOpacity
+                  onPress={() => setShowDropdown((p) => !p)}
+                  activeOpacity={0.75}
+                  style={styles.wifiDropdownHeader}
+                >
+                  <Text style={styles.wifiDropdownHeaderLabel}>
+                    {ssid && !showManualInput
+                      ? `✓  ${ssid}`
+                      : `${wifiList.length} ağ bulundu — seçmek için bas`}
+                  </Text>
+                  <Text style={styles.wifiDropdownChevron}>
+                    {showDropdown ? '▲' : '▼'}
+                  </Text>
+                </TouchableOpacity>
+
+                {/* Liste — showDropdown açıksa göster */}
+                {showDropdown && (
+                  <View style={styles.wifiList}>
+                    {wifiList.map((network, idx) => (
+                      <TouchableOpacity
+                        key={`${network.ssid}-${idx}`}
+                        onPress={() => {
+                          setSsid(network.ssid);
+                          setShowManualInput(false);
+                          setShowDropdown(false); // Seçince kapat
+                        }}
+                        activeOpacity={0.75}
+                        style={[
+                          styles.wifiItem,
+                          ssid === network.ssid && !showManualInput && styles.wifiItemSelected,
+                          idx === wifiList.length - 1 && { borderBottomWidth: 0 },
+                        ]}
+                      >
+                        <View style={styles.wifiItemLeft}>
+                          <View style={[styles.wifiItemDot, {
+                            backgroundColor: ssid === network.ssid && !showManualInput
+                              ? Colors.cyan : Colors.border2,
+                          }]} />
+                          <Text style={[
+                            styles.wifiItemSsid,
+                            ssid === network.ssid && !showManualInput && { color: Colors.cyan },
+                          ]}>
+                            {network.ssid}
+                          </Text>
+                        </View>
+                        <View style={styles.wifiItemRight}>
+                          <Text style={styles.wifiItemBars}>{signalBars(network.rssi)}</Text>
+                          <Text style={styles.wifiItemLabel}>{signalLabel(network.rssi)}</Text>
+                        </View>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                )}
               </View>
             )}
 
-            {/* Seçilen ağ göstergesi */}
-            {ssid !== '' && !showManualInput && (
+            {/* Seçilen ağ göstergesi — dropdown kapalıyken */}
+            {ssid !== '' && !showManualInput && !showDropdown && (
               <View style={styles.selectedNetworkRow}>
                 <View style={styles.selectedNetworkDot} />
                 <Text style={styles.selectedNetworkLabel}>SEÇİLEN:</Text>
@@ -358,7 +384,8 @@ export default function SetupScreen({ onDone }: Props) {
             <TouchableOpacity
               onPress={() => {
                 setShowManualInput((p) => !p);
-                if (!showManualInput) setSsid('');
+                if (!showManualInput) { setSsid(''); setShowDropdown(false); }
+                else setShowDropdown(wifiList.length > 0);
               }}
               style={styles.manualToggle}
               activeOpacity={0.7}
@@ -529,7 +556,11 @@ const styles = StyleSheet.create({
   wifiNotConnectedText: { fontFamily: Fonts.mono, fontSize: 10, letterSpacing: 1, color: Colors.text3, lineHeight: 16 },
   errorBox: { borderWidth: 1, borderColor: Colors.red, borderRadius: Radius.sm, backgroundColor: Colors.redAlpha, padding: Spacing.md },
   errorText: { fontFamily: Fonts.mono, fontSize: 11, letterSpacing: 1, color: Colors.red, lineHeight: 18 },
-  wifiList: { borderWidth: 1, borderColor: Colors.border, borderRadius: Radius.md, backgroundColor: Colors.bg3, overflow: 'hidden' },
+  wifiDropdown: { borderWidth: 1, borderColor: Colors.border, borderRadius: Radius.md, backgroundColor: Colors.bg3, overflow: 'hidden' },
+  wifiDropdownHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: Spacing.lg, paddingVertical: Spacing.md },
+  wifiDropdownHeaderLabel: { fontFamily: Fonts.sans, fontSize: 13, color: Colors.text, flex: 1 },
+  wifiDropdownChevron: { fontFamily: Fonts.mono, fontSize: 11, color: Colors.text3, marginLeft: Spacing.sm },
+  wifiList: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: Colors.border3, overflow: 'hidden' },
   wifiItem: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: Spacing.lg, paddingVertical: Spacing.md, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: Colors.border3 },
   wifiItemSelected: { backgroundColor: Colors.cyanAlpha },
   wifiItemLeft: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, flex: 1 },

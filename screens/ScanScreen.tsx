@@ -180,6 +180,14 @@ export default function ScanScreen({ onDeviceAdded, onDeviceSelected, onBack }: 
             <Text style={styles.titleEyebrow}>// TARAMA</Text>
             <Text style={styles.titleMain}>Cihaz{'\n'}Ekle</Text>
             <Text style={styles.titleDesc}>Yerel ağdaki tüm ESP32 cihazları listelenir</Text>
+
+            {/* WiFi uyarısı */}
+            <View style={styles.wifiWarning}>
+              <Text style={styles.wifiWarningText}>
+                📶 Tarama yapabilmek için ESP32'nin bağlı olduğu ev WiFi ağında olmalısın.
+                ESP32-Setup ağında değil, kendi internet ağında olduğundan emin ol.
+              </Text>
+            </View>
           </View>
 
           {/* Tarama göstergesi */}
@@ -441,6 +449,8 @@ const styles = StyleSheet.create({
   titleEyebrow: { fontFamily: Fonts.mono, fontSize: 10, letterSpacing: 4, color: Colors.cyan },
   titleMain: { fontFamily: Fonts.sans, fontSize: 42, lineHeight: 48, letterSpacing: -0.5, color: Colors.text, fontWeight: '300' },
   titleDesc: { fontFamily: Fonts.sans, fontSize: 13, color: Colors.text2, lineHeight: 20, marginTop: Spacing.xs },
+  wifiWarning: { borderWidth: 1, borderColor: Colors.border2, borderRadius: Radius.sm, backgroundColor: Colors.bg3, padding: Spacing.md, marginTop: Spacing.xs },
+  wifiWarningText: { fontFamily: Fonts.sans, fontSize: 12, color: Colors.text3, lineHeight: 18 },
   scanningCard: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md, borderWidth: 1, borderColor: Colors.border, borderRadius: Radius.sm, backgroundColor: Colors.bg3, paddingHorizontal: Spacing.lg, paddingVertical: Spacing.md },
   scanningTextGroup: { flex: 1, gap: 2 },
   scanningLabel: { fontFamily: Fonts.mono, fontSize: 11, letterSpacing: 3, color: Colors.cyan },

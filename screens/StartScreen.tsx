@@ -17,6 +17,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useEffect, useState } from 'react';
 import {
+  AppState,
   SafeAreaView,
   StyleSheet,
   Text,
@@ -36,11 +37,22 @@ export default function StartScreen({ onSetup, onScan }: Props) {
   const [setupDone, setSetupDone] = useState(false);
   const [loading, setLoading]     = useState(true);
 
+  const checkSetupDone = async () => {
+    const val = await AsyncStorage.getItem(SETUP_DONE_KEY);
+    setSetupDone(val === 'true');
+    setLoading(false);
+  };
+
   useEffect(() => {
-    AsyncStorage.getItem(SETUP_DONE_KEY).then((val) => {
-      setSetupDone(val === 'true');
-      setLoading(false);
+    // İlk yüklemede oku
+    checkSetupDone();
+
+    // Uygulama ön plana her geldiğinde yeniden kontrol et
+    // (DeviceListScreen'den döndükten sonra güncel değeri yakalar)
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') checkSetupDone();
     });
+    return () => sub.remove();
   }, []);
 
   return (
