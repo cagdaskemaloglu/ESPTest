@@ -2,14 +2,8 @@
  * App.tsx
  * Kök bileşen — router + global state.
  *
- * Splash akışı:
- *   1. Expo built-in splash (app.json'daki statik görsel) hemen gösterilir
- *   2. initApp() arka planda çalışır (cihaz kontrolü, izinler)
- *   3. SplashAnimation bileşeni animasyonu oynatır (3 saniye)
- *   4. Animasyon bitince ExpoSplash.hideAsync() → asıl ekrana geçiş
- *
- * Kurulum:
- *   npx expo install expo-splash-screen react-native-svg
+ * Sahneler ve Otomasyon artık ControlScreen içinde accordion olarak çalışır.
+ * Ayrı ekran adımları kaldırıldı.
  */
 
 import * as ExpoSplash from 'expo-splash-screen';
@@ -17,11 +11,9 @@ import { useCallback, useEffect, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 
 import SplashAnimation from './components/SplashAnimation';
-import AutomationScreen from './screens/AutomationScreen';
 import ControlScreen from './screens/ControlScreen';
 import DeviceListScreen from './screens/DeviceListScreen';
 import OnboardingScreen from './screens/OnboardingScreen';
-import PresetsScreen from './screens/PresetsScreen';
 import ScanScreen from './screens/ScanScreen';
 import SetupScreen from './screens/SetupScreen';
 import StartScreen from './screens/StartScreen';
@@ -35,8 +27,6 @@ import { requestNotificationPermission } from './services/notificationService';
 import { Colors } from './theme/colors';
 import { Device } from './types/Device';
 
-// Expo splash screen'in otomatik kapanmasını engelle
-// Biz animasyonu kendimiz kontrol edeceğiz
 ExpoSplash.preventAutoHideAsync();
 
 type Step =
@@ -46,28 +36,21 @@ type Step =
   | 'setup'
   | 'scan'
   | 'control'
-  | 'deviceList'
-  | 'automation'
-  | 'presets';
+  | 'deviceList';
 
 export default function App() {
-  const [step, setStep]                   = useState<Step>('loading');
-  const [activeDevice, setActiveDevice]   = useState<Device | null>(null);
-  // appReady: initApp tamamlandı mı?
-  const [appReady, setAppReady]           = useState(false);
-  // splashDone: animasyon bitti mi?
-  const [splashDone, setSplashDone]       = useState(false);
+  const [step, setStep]                 = useState<Step>('loading');
+  const [activeDevice, setActiveDevice] = useState<Device | null>(null);
+  const [appReady, setAppReady]         = useState(false);
+  const [splashDone, setSplashDone]     = useState(false);
 
   useEffect(() => { initApp(); }, []);
 
   const initApp = async () => {
     try {
-      // Bildirim iznini iste
       await requestNotificationPermission();
-
       const devices = await getDevices();
       const lastId  = await getLastDeviceId();
-
       if (devices.length === 0) {
         setStep('onboarding');
       } else {
@@ -75,15 +58,13 @@ export default function App() {
         setActiveDevice(last);
         setStep('control');
       }
-    } catch (e) {
-      console.error('initApp hata:', e);
+    } catch {
       setStep('start');
     } finally {
       setAppReady(true);
     }
   };
 
-  // Splash animasyonu bitince Expo splash'i gizle
   const handleSplashFinish = useCallback(async () => {
     await ExpoSplash.hideAsync();
     setSplashDone(true);
@@ -95,22 +76,10 @@ export default function App() {
     setStep('control');
   };
 
-  // Uygulama hazır değilse boş ekran göster
-  // (Expo splash hâlâ üstte, kullanıcı görmez)
-  if (!appReady) {
-    return <View style={styles.loading} />;
-  }
+  if (!appReady)   return <View style={styles.bg} />;
+  if (!splashDone) return <SplashAnimation onFinish={handleSplashFinish} />;
 
-  // Splash animasyonu henüz bitmedi — SplashAnimation göster
-  if (!splashDone) {
-    return <SplashAnimation onFinish={handleSplashFinish} />;
-  }
-
-  // ── Normal uygulama akışı ──────────────────────────────────────
-
-  if (step === 'onboarding') {
-    return <OnboardingScreen onDone={() => setStep('start')} />;
-  }
+  if (step === 'onboarding') return <OnboardingScreen onDone={() => setStep('start')} />;
 
   if (step === 'start') {
     return (
@@ -124,7 +93,7 @@ export default function App() {
   if (step === 'setup') {
     return (
       <SetupScreen
-        onDone={() => { console.log('✅ SETUP TAMAMLANDI'); setStep('scan'); }}
+        onDone={() => setStep('scan')}
       />
     );
   }
@@ -151,42 +120,19 @@ export default function App() {
     );
   }
 
-  if (step === 'automation' && activeDevice) {
-    return (
-      <AutomationScreen
-        device={activeDevice}
-        onBack={() => setStep('control')}
-      />
-    );
-  }
-
-  if (step === 'presets' && activeDevice) {
-    return (
-      <PresetsScreen
-        device={activeDevice}
-        onBack={() => setStep('control')}
-      />
-    );
-  }
-
   if (step === 'control' && activeDevice) {
     return (
       <ControlScreen
         device={activeDevice}
-        onOpenList={()        => setStep('deviceList')}
-        onAddDevice={()       => setStep('scan')}
-        onOpenAutomation={()  => setStep('automation')}
-        onOpenPresets={()     => setStep('presets')}
+        onOpenList={()  => setStep('deviceList')}
+        onAddDevice={() => setStep('scan')}
       />
     );
   }
 
-  return <View style={styles.loading} />;
+  return <View style={styles.bg} />;
 }
 
 const styles = StyleSheet.create({
-  loading: {
-    flex: 1,
-    backgroundColor: Colors.bg,
-  },
+  bg: { flex: 1, backgroundColor: Colors.bg },
 });
