@@ -1,7 +1,6 @@
 /**
  * services/deviceStorage.ts
- * AsyncStorage üzerinde cihaz listesi için CRUD işlemleri.
- * pin alanı normalize edildi — eski kayıtlarda pin yoksa boş string atanır.
+ * Geriye dönük uyumluluk: eski kayıtlarda channels/parts yoksa varsayılan oluştur
  */
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -9,6 +8,7 @@ import {
   Device,
   DeviceType,
   defaultCapabilities,
+  defaultChannels,
 } from '../types/Device';
 
 const STORAGE_KEY = 'torva_devices';
@@ -16,6 +16,14 @@ const LAST_KEY    = 'torva_last_device';
 
 function normalize(d: any): Device {
   const type: DeviceType = d.type ?? 'unknown';
+  const leds: number | undefined = d.leds;
+
+  // Eski kayıtlarda channels yoksa tek kanallı varsayılan oluştur
+  const channels = d.channels ?? defaultChannels(type, leds);
+
+  // Eski kayıtlarda parts yoksa boş liste
+  const parts: string[] = d.parts ?? [];
+
   return {
     id:           d.id,
     name:         d.name,
@@ -25,8 +33,10 @@ function normalize(d: any): Device {
     color:        d.color ?? { r: 255, g: 255, b: 255 },
     type,
     capabilities: d.capabilities ?? defaultCapabilities(type),
-    leds:         d.leds,
-    pin:          d.pin ?? '',  // Eski kayıtlarda pin yoksa boş
+    leds,
+    pin:          d.pin ?? '',
+    channels,
+    parts,
   };
 }
 
@@ -35,19 +45,13 @@ export async function getDevices(): Promise<Device[]> {
     const raw = await AsyncStorage.getItem(STORAGE_KEY);
     if (!raw) return [];
     return (JSON.parse(raw) as any[]).map(normalize);
-  } catch (e) {
-    console.error('getDevices hata:', e);
-    return [];
-  }
+  } catch (e) { console.error('getDevices hata:', e); return []; }
 }
 
 export async function addDevice(device: Device): Promise<void> {
   try {
     const current = await getDevices();
-    if (current.some((d) => d.ip === device.ip)) {
-      console.log('Cihaz zaten kayıtlı:', device.ip);
-      return;
-    }
+    if (current.some((d) => d.ip === device.ip)) return;
     await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify([...current, device]));
   } catch (e) { console.error('addDevice hata:', e); }
 }
@@ -77,10 +81,7 @@ export async function saveBrightness(id: string, brightness: number): Promise<vo
   } catch (e) { console.error('saveBrightness hata:', e); }
 }
 
-export async function saveColor(
-  id: string,
-  color: { r: number; g: number; b: number }
-): Promise<void> {
+export async function saveColor(id: string, color: { r: number; g: number; b: number }): Promise<void> {
   try {
     const current = await getDevices();
     await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(
@@ -89,7 +90,6 @@ export async function saveColor(
   } catch (e) { console.error('saveColor hata:', e); }
 }
 
-// PIN güncelle — cihaz ayarlarından PIN değiştirilirse
 export async function savePin(id: string, pin: string): Promise<void> {
   try {
     const current = await getDevices();

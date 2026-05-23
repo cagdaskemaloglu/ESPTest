@@ -1,16 +1,16 @@
 /**
  * services/networkScanner.ts
- * Yerel ağda ESP32 cihazlarını arayan servis.
- *
- * /whoami yanıtından type, capabilities ve pin_required okunur.
- * pin_required: true ise ScanScreen "PIN gerekli" rozeti gösterir.
+ * /whoami'den channels ve parts okunur.
+ * Eski firmware'de channels yoksa defaultChannels() ile tek kanal oluşturulur.
  */
 
 import * as Network from 'expo-network';
 import {
+  Channel,
   DeviceCapability,
   DeviceType,
   defaultCapabilities,
+  defaultChannels,
 } from '../types/Device';
 
 const CHUNK_SIZE = 20;
@@ -20,9 +20,11 @@ export type FoundDevice = {
   ip:           string;
   name:         string;
   type:         DeviceType;
-  capabilities: DeviceCapability[];
+  capabilities: DeviceCapability[]; // Geriye dönük uyumluluk
   leds?:        number;
-  pinRequired:  boolean;  // ESP32'de PIN tanımlı mı?
+  pinRequired:  boolean;
+  channels:     Channel[];
+  parts:        string[];
 };
 
 function fetchWithTimeout(url: string, timeout = TIMEOUT_MS): Promise<Response> {
@@ -46,16 +48,25 @@ async function checkIP(ip: string): Promise<FoundDevice | null> {
     const data = await res.json();
     if (!data.device) return null;
 
-    const type: DeviceType         = data.type ?? 'unknown';
+    const type: DeviceType = data.type ?? 'unknown';
+    const leds: number | undefined = data.leds;
     const capabilities: DeviceCapability[] = data.capabilities ?? defaultCapabilities(type);
+
+    // channels yoksa (eski firmware) tek kanallı varsayılan oluştur
+    const channels: Channel[] = data.channels ?? defaultChannels(type, leds);
+
+    // parts yoksa boş liste
+    const parts: string[] = Array.isArray(data.parts) ? data.parts : [];
 
     return {
       ip,
-      name:        data.device,
+      name: data.device,
       type,
       capabilities,
-      leds:        data.leds,
+      leds,
       pinRequired: data.pin_required === true,
+      channels,
+      parts,
     };
   } catch {}
   return null;
@@ -66,7 +77,6 @@ export async function scanNetwork(callbacks: {
   onProgress?:    (scanned: number, total: number) => void;
 }): Promise<FoundDevice[]> {
   const { onDeviceFound, onProgress } = callbacks;
-
   console.log('🔍 SCAN BAŞLADI');
 
   const localIP = await Network.getIpAddressAsync();
@@ -82,10 +92,9 @@ export async function scanNetwork(callbacks: {
     const results = await Promise.all(group.map((ip) => checkIP(ip)));
     scanned += group.length;
     onProgress?.(scanned, allIPs.length);
-
     for (const device of results) {
       if (device) {
-        console.log(`✅ FOUND: ${device.ip} [${device.type}] PIN:${device.pinRequired}`);
+        console.log(`✅ FOUND: ${device.ip} [${device.type}] ${device.channels.length}ch parts:[${device.parts.join(',')}]`);
         found.push(device);
         onDeviceFound?.(device);
       }
