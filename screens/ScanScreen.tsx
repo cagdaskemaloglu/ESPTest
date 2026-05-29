@@ -25,7 +25,7 @@ import {
 import { addDevice, getDevices } from '../services/deviceStorage';
 import { FoundDevice, scanNetwork } from '../services/networkScanner';
 import { Colors, Fonts, Radius, Spacing } from '../theme/colors';
-import { Device, DeviceType, defaultCapabilities } from '../types/Device';
+import { Device, DeviceType, defaultCapabilities, defaultChannels } from '../types/Device';
 
 type Props = {
   onDeviceAdded:    (device: Device) => void;
@@ -140,6 +140,9 @@ export default function ScanScreen({ onDeviceAdded, onDeviceSelected, onBack }: 
       capabilities: found?.capabilities ?? defaultCapabilities(type),
       leds:         found?.leds,
       pin:          form.pin,
+      channels:     found?.channels     ?? defaultChannels(type, found?.leds),
+      parts:        found?.parts        ?? [],
+      partMaterials: found?.partMaterials ?? {},
     };
 
     await addDevice(newDevice);

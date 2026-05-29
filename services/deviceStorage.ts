@@ -5,10 +5,12 @@
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
-  Device,
-  DeviceType,
+  DEFAULT_PART_MATERIAL,
   defaultCapabilities,
   defaultChannels,
+  Device,
+  DeviceType,
+  PartMaterial,
 } from '../types/Device';
 
 const STORAGE_KEY = 'torva_devices';
@@ -17,12 +19,19 @@ const LAST_KEY    = 'torva_last_device';
 function normalize(d: any): Device {
   const type: DeviceType = d.type ?? 'unknown';
   const leds: number | undefined = d.leds;
-
-  // Eski kayıtlarda channels yoksa tek kanallı varsayılan oluştur
   const channels = d.channels ?? defaultChannels(type, leds);
-
-  // Eski kayıtlarda parts yoksa boş liste
   const parts: string[] = d.parts ?? [];
+
+  // partMaterials — eski kayıtlarda yoksa boş obje
+  const partMaterials: Record<string, PartMaterial> = {};
+  if (d.partMaterials) {
+    Object.assign(partMaterials, d.partMaterials);
+  } else {
+    // Eski kayıt — her part için default materyal ata
+    parts.forEach((key) => {
+      partMaterials[key] = { ...DEFAULT_PART_MATERIAL };
+    });
+  }
 
   return {
     id:           d.id,
@@ -37,6 +46,7 @@ function normalize(d: any): Device {
     pin:          d.pin ?? '',
     channels,
     parts,
+    partMaterials,
   };
 }
 
@@ -107,4 +117,24 @@ export async function saveLastDeviceId(id: string): Promise<void> {
 export async function getLastDeviceId(): Promise<string | null> {
   try { return await AsyncStorage.getItem(LAST_KEY); }
   catch (e) { console.error('getLastDeviceId hata:', e); return null; }
+}
+
+// Parts ve partMaterials güncelle — /whoami'den gelen yeni veriyle
+export async function saveDeviceMeta(
+  id:           string,
+  parts:        string[],
+  partMaterials: Record<string, PartMaterial>,
+  channels?:    any[],
+): Promise<void> {
+  try {
+    const current = await getDevices();
+    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(
+      current.map((d) => d.id === id ? {
+        ...d,
+        parts,
+        partMaterials,
+        ...(channels ? { channels } : {}),
+      } : d)
+    ));
+  } catch (e) { console.error('saveDeviceMeta hata:', e); }
 }

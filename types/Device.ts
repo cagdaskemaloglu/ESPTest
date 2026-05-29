@@ -19,6 +19,13 @@ export type Channel = {
   leds?:        number;
 };
 
+// Part materyal bilgisi — 3D render için
+export type PartMaterial = {
+  color:     string;  // hex — örn. "#1a1a1a"
+  roughness: number;  // 0.0 (parlak) → 1.0 (mat)
+  metalness: number;  // 0.0 (plastik) → 1.0 (metal)
+};
+
 export type Device = {
   id:           string;
   name:         string;
@@ -27,18 +34,17 @@ export type Device = {
   brightness:   number;
   color:        { r: number; g: number; b: number };
   type:         DeviceType;
-  capabilities: DeviceCapability[]; // Geriye dönük uyumluluk — tek kanallı için
+  capabilities: DeviceCapability[];
   leds?:        number;
   pin:          string;
-  // Çoklu kanal — her adreslenebilir şerit bir channel
-  // Tek kanallı cihazlarda channels: [{ id: 0, name: "Şerit", ... }]
   channels:     Channel[];
-  // 3D model parça key listesi (sıralı, en az 1 en fazla 10)
+  // Part key listesi — sıralı, 3D render için
   parts:        string[];
+  // Her part için materyal — key: part adı
+  partMaterials: Record<string, PartMaterial>;
 };
 
 export function hasCapability(device: Device, cap: DeviceCapability): boolean {
-  // Çoklu kanalda herhangi bir kanalda bu yetenek varsa true
   if (device.channels.length > 0) {
     return device.channels.some((ch) => ch.capabilities.includes(cap));
   }
@@ -58,7 +64,6 @@ export function defaultCapabilities(type: DeviceType): DeviceCapability[] {
   }
 }
 
-// /whoami'den channels yoksa varsayılan tek kanal oluştur
 export function defaultChannels(type: DeviceType, leds?: number): Channel[] {
   return [{
     id:           0,
@@ -67,3 +72,10 @@ export function defaultChannels(type: DeviceType, leds?: number): Channel[] {
     leds,
   }];
 }
+
+// Varsayılan materyal — part rengi bilinmiyorsa
+export const DEFAULT_PART_MATERIAL: PartMaterial = {
+  color:     '#2a2a2a',
+  roughness: 0.8,
+  metalness: 0.1,
+};

@@ -24,6 +24,7 @@ import {
   saveLastDeviceId,
 } from './services/deviceStorage';
 import { requestNotificationPermission } from './services/notificationService';
+import { preloadGeometries } from './services/stlCache';
 import { Colors } from './theme/colors';
 import { Device } from './types/Device';
 
@@ -51,6 +52,13 @@ export default function App() {
       await requestNotificationPermission();
       const devices = await getDevices();
       const lastId  = await getLastDeviceId();
+
+      // Tüm cihazların parts listesini splash sırasında cache'le
+      const allParts = [...new Set(devices.flatMap((d) => d.parts ?? []))];
+      if (allParts.length > 0) {
+        preloadGeometries(allParts).catch(() => {}); // Arka planda — bekleme
+      }
+
       if (devices.length === 0) {
         setStep('onboarding');
       } else {

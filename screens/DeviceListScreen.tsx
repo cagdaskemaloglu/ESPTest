@@ -27,6 +27,7 @@ import {
   removeDevice,
   renameDevice,
 } from '../services/deviceStorage';
+import { cancelAllNotifications } from '../services/notificationService';
 import { Colors, Fonts, Radius, Spacing } from '../theme/colors';
 import { Device } from '../types/Device';
 
@@ -84,6 +85,7 @@ export default function DeviceListScreen({
           text: 'Kaldır', style: 'destructive',
           onPress: async () => {
             await removeDevice(device.id);
+            await AsyncStorage.removeItem('torva_setup_done');
             const remaining = await getDevices();
             if (remaining.length === 0) onStart();
             else { await loadDevices(); if (device.id === activeDeviceId) onBack(); }
@@ -122,8 +124,9 @@ export default function DeviceListScreen({
       const res = await fetch(`http://${device.ip}/factory-reset${pin}`);
       if (res.ok) {
         await removeDevice(device.id);
-        // Kurulum tamamlandı anahtarını sil — StartScreen'de "Cihaz Ara" tekrar kilitlenir
         await AsyncStorage.removeItem('torva_setup_done');
+        // ESP32 otomasyon kuralları silindi — telefondaki bildirimleri de iptal et
+        await cancelAllNotifications();
         const remaining = await getDevices();
         Alert.alert(
           'Sıfırlama Tamamlandı',
@@ -141,6 +144,9 @@ export default function DeviceListScreen({
             text: 'Sadece Listeden Kaldır', style: 'destructive',
             onPress: async () => {
               await removeDevice(device.id);
+              await AsyncStorage.removeItem('torva_setup_done');
+              // ESP32'ye ulaşılamadı ama telefon bildirimlerini temizle
+              await cancelAllNotifications();
               const remaining = await getDevices();
               if (remaining.length === 0) onStart();
               else if (device.id === activeDeviceId) onBack();
