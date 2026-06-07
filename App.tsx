@@ -42,6 +42,7 @@ type Step =
 export default function App() {
   const [step, setStep]                 = useState<Step>('loading');
   const [activeDevice, setActiveDevice] = useState<Device | null>(null);
+  const [devices, setDevices]           = useState<Device[]>([]);
   const [appReady, setAppReady]         = useState(false);
   const [splashDone, setSplashDone]     = useState(false);
 
@@ -52,6 +53,7 @@ export default function App() {
       await requestNotificationPermission();
       const devices = await getDevices();
       const lastId  = await getLastDeviceId();
+      setDevices(devices);
 
       // Tüm cihazların parts listesini splash sırasında cache'le
       const allParts = [...new Set(devices.flatMap((d) => d.parts ?? []))];
@@ -81,6 +83,9 @@ export default function App() {
   const selectDevice = async (device: Device) => {
     setActiveDevice(device);
     await saveLastDeviceId(device.id);
+    // Güncel cihaz listesini yenile
+    const updated = await getDevices();
+    setDevices(updated);
     setStep('control');
   };
 
@@ -132,8 +137,10 @@ export default function App() {
     return (
       <ControlScreen
         device={activeDevice}
-        onOpenList={()  => setStep('deviceList')}
-        onAddDevice={() => setStep('scan')}
+        devices={devices}
+        onOpenList={()        => setStep('deviceList')}
+        onAddDevice={()       => setStep('scan')}
+        onDeviceChange={(device) => selectDevice(device)}
       />
     );
   }

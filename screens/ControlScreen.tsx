@@ -52,9 +52,11 @@ if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental
 }
 
 type Props = {
-  device:      Device;
-  onOpenList:  () => void;
-  onAddDevice: () => void;
+  device:          Device;
+  devices:         Device[];
+  onOpenList:      () => void;
+  onAddDevice:     () => void;
+  onDeviceChange:  (device: Device) => void;
 };
 
 function rgbToHex(r: number, g: number, b: number) {
@@ -538,13 +540,48 @@ function ChannelControl({
 }
 
 // ── Ana ControlScreen ─────────────────────────────────────────────────────────
-export default function ControlScreen({ device, onOpenList, onAddDevice }: Props) {
+export default function ControlScreen({ device, devices, onOpenList, onAddDevice, onDeviceChange }: Props) {
   const [currentPin, setCurrentPin]   = useState(device.pin ?? '');
   const [showPinScreen, setShowPinScreen] = useState(false);
   const [pinScreenMode, setPinScreenMode] = useState<'enter'|'setup'>('enter');
   const [pinError, setPinError]           = useState<string | null>(null);
   const [pinLoading, setPinLoading]       = useState(false);
   const [presets, setPresets]             = useState<Preset[]>([]);
+
+  // Slide animasyonu
+  const slideAnim    = useRef(new Animated.Value(0)).current;
+  const [sliding, setSliding] = useState(false);
+  const currentIndex  = devices.findIndex((d) => d.id === device.id);
+  const hasPrev       = currentIndex > 0;
+  const hasNext       = currentIndex < devices.length - 1;
+  const isMultiDevice = devices.length > 1;
+
+  const slideToDevice = (nextDevice: Device, direction: 'left' | 'right') => {
+    if (sliding) return;
+    setSliding(true);
+    // Başlangıç pozisyonu — yeni kart dışarıdan gelir
+    const outDir = direction === 'right' ? SCREEN_W : -SCREEN_W;
+    slideAnim.setValue(0);
+    Animated.sequence([
+      // Mevcut kart dışarı çıkar
+      Animated.timing(slideAnim, {
+        toValue: direction === 'right' ? -SCREEN_W : SCREEN_W,
+        duration: 280,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+    ]).start(() => {
+      onDeviceChange(nextDevice);
+      slideAnim.setValue(outDir);
+      // Yeni kart içeri girer
+      Animated.timing(slideAnim, {
+        toValue: 0,
+        duration: 280,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }).start(() => setSliding(false));
+    });
+  };
 
   // Her kanal için bağımsız state
   const safeChannels = device.channels ?? [{ id: 0, name: 'Şerit', capabilities: device.capabilities ?? ['on_off','brightness','color','effects'], leds: device.leds }];
@@ -710,12 +747,29 @@ export default function ControlScreen({ device, onOpenList, onAddDevice }: Props
         keyboardShouldPersistTaps="handled"
         onScroll={(e) => {}} scrollEventThrottle={16}
       >
-        {/* ── Model Kartı — tüm cihaz için tek model ── */}
-        <View style={styles.modelCard}>
+        {/* ── Model Kartı — slide animasyonlu ── */}
+        <View style={styles.modelCardOuter}>
 
-          {/* 3D Model — tıklanabilir, döndürülebilir */}
-          <TouchableOpacity
-            onPress={() => {
+          {/* Sol ok — önceki cihaz */}
+          {isMultiDevice && (
+            <TouchableOpacity
+              onPress={() => hasPrev && slideToDevice(devices[currentIndex - 1], 'left')}
+              style={[styles.slideBtn, !hasPrev && styles.slideBtnDisabled]}
+              activeOpacity={0.7}
+            >
+              <Text style={[styles.slideBtnText, !hasPrev && styles.slideBtnTextDisabled]}>‹</Text>
+            </TouchableOpacity>
+          )}
+
+          {/* Animasyonlu kart */}
+          <Animated.View style={[
+            styles.modelCard,
+            { transform: [{ translateX: slideAnim }] },
+          ]}>
+
+            {/* 3D Model — tıklanabilir, döndürülebilir */}
+            <TouchableOpacity
+              onPress={() => {
               // Tek kanallı: direkt toggle
               // Çok kanallı: tüm kanalları toggle
               if (!isMultiChannel) {
@@ -836,6 +890,19 @@ export default function ControlScreen({ device, onOpenList, onAddDevice }: Props
               );
             })}
           </View>
+          </Animated.View>
+
+          {/* Sağ ok — sonraki cihaz */}
+          {isMultiDevice && (
+            <TouchableOpacity
+              onPress={() => hasNext && slideToDevice(devices[currentIndex + 1], 'right')}
+              style={[styles.slideBtn, !hasNext && styles.slideBtnDisabled]}
+              activeOpacity={0.7}
+            >
+              <Text style={[styles.slideBtnText, !hasNext && styles.slideBtnTextDisabled]}>›</Text>
+            </TouchableOpacity>
+          )}
+
         </View>
 
         {/* ── Kanal kontrolleri (parlaklık, renk, sahneler, otomasyon) ── */}
@@ -898,13 +965,44 @@ const styles = StyleSheet.create({
   channelHeaderText: { fontFamily: Fonts.mono, fontSize: 9, letterSpacing: 4, color: Colors.cyan },
 
   // ── Model kartı ──────────────────────────────────────────────────────────
+  modelCardOuter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    marginBottom: Spacing.md,
+  },
   modelCard: {
+    flex: 1,
     borderWidth: 1,
     borderColor: Colors.border,
     borderRadius: Radius.md,
     backgroundColor: Colors.bg3,
     overflow: 'hidden',
-    marginBottom: Spacing.md,
+  },
+  // Slide ok butonları
+  slideBtn: {
+    width: 32,
+    height: 64,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: Colors.border2,
+    borderRadius: Radius.sm,
+    backgroundColor: Colors.bg3,
+    flexShrink: 0,
+  },
+  slideBtnDisabled: {
+    borderColor: Colors.border3,
+    backgroundColor: 'transparent',
+  },
+  slideBtnText: {
+    fontFamily: Fonts.mono,
+    fontSize: 22,
+    color: Colors.cyan,
+    lineHeight: 28,
+  },
+  slideBtnTextDisabled: {
+    color: Colors.border2,
   },
   modelViewerWrap: {
     position: 'relative',
