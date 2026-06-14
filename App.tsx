@@ -127,25 +127,31 @@ export default function App() {
         activeDeviceId={activeDevice.id}
         onSelect={(device) => selectDevice(device)}
         onAddNew={() => setStep('scan')}
+        onSetup={() => setStep('setup')}
         onBack={() => setStep('control')}
         onStart={() => setStep('start')}
       />
     );
   }
 
-  if (step === 'control' && activeDevice) {
-    return (
-      <ControlScreen
-        device={activeDevice}
-        devices={devices}
-        onOpenList={()        => setStep('deviceList')}
-        onAddDevice={()       => setStep('scan')}
-        onDeviceChange={(device) => selectDevice(device)}
-      />
-    );
-  }
-
-  return <View style={styles.bg} />;
+  // ControlScreen her zaman mount'ta kalır — GLView destroy/recreate önlenir
+  // step !== 'control' iken üstüne diğer ekranlar gelir ama ControlScreen unmount olmaz
+  return (
+    <>
+      <View style={{ flex: 1, display: step === 'control' && activeDevice ? 'flex' : 'none' }}>
+        {activeDevice && (
+          <ControlScreen
+            device={activeDevice}
+            devices={devices}
+            onOpenList={()           => setStep('deviceList')}
+            onAddDevice={()          => setStep('setup')}
+            onDeviceChange={(device) => selectDevice(device)}
+          />
+        )}
+      </View>
+      {step !== 'control' && <View style={styles.bg} />}
+    </>
+  );
 }
 
 const styles = StyleSheet.create({

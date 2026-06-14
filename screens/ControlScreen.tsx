@@ -15,6 +15,7 @@ import {
   Animated,
   Dimensions,
   Easing,
+  KeyboardAvoidingView,
   LayoutAnimation,
   Modal,
   Platform,
@@ -45,7 +46,12 @@ import {
 import { Colors, Fonts, Radius, Spacing } from '../theme/colors';
 import { Channel, Device, channelHasCapability } from '../types/Device';
 
-const { width: SCREEN_W } = Dimensions.get('window');
+const SLIDE_BTN_W  = 36;
+const SLIDE_GAP    = Spacing.sm;
+const SCREEN_W     = Dimensions.get('window').width;
+// Çok cihazda: her iki yanda ok butonu + gap hesabı
+// Tek cihazda da aynı boyutu kullanalım — tutarlılık için
+const CARD_W = SCREEN_W - Spacing.xl * 2 - (SLIDE_BTN_W + SLIDE_GAP) * 2;
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -70,7 +76,7 @@ function speedLabel(speed: number): string {
   return 'Çok Hızlı';
 }
 
-type LocalRule = AutomationRule & { notificationId?: string };
+type LocalRule = AutomationRule & { notificationId?: string; triggered?: boolean };
 
 // ── Kanal durumu ──────────────────────────────────────────────────────────────
 type ChannelState = {
@@ -108,10 +114,30 @@ function NumberPicker({ label, value, min, max, onChange, onFocus }: {
         </TouchableOpacity>
         <TouchableOpacity onPress={() => { setInputVal(String(value)); setEditing(true); onFocus?.(); }} activeOpacity={0.8} style={np.display}>
           {editing ? (
-            <TextInput value={inputVal} onChangeText={(t) => setInputVal(t.replace(/\D/g,''))}
-              onBlur={() => { const p=parseInt(inputVal,10); if(!isNaN(p)) onChange(clamp(p)); setEditing(false); }}
-              onSubmitEditing={() => { const p=parseInt(inputVal,10); if(!isNaN(p)) onChange(clamp(p)); setEditing(false); }}
-              keyboardType="number-pad" maxLength={2} autoFocus selectTextOnFocus style={np.displayInput} />
+            <TextInput
+              value={inputVal}
+              onChangeText={(t) => {
+                const clean = t.replace(/\D/g, '');
+                setInputVal(clean);
+                const p = parseInt(clean, 10);
+                if (!isNaN(p)) onChange(clamp(p));
+              }}
+              onBlur={() => {
+                const p = parseInt(inputVal, 10);
+                if (!isNaN(p)) onChange(clamp(p));
+                setEditing(false);
+              }}
+              onSubmitEditing={() => {
+                const p = parseInt(inputVal, 10);
+                if (!isNaN(p)) onChange(clamp(p));
+                setEditing(false);
+              }}
+              keyboardType="number-pad"
+              maxLength={2}
+              autoFocus
+              selectTextOnFocus
+              style={np.displayInput}
+            />
           ) : (
             <Text style={np.displayText}>{String(value).padStart(2,'0')}</Text>
           )}
@@ -136,7 +162,7 @@ const np = StyleSheet.create({
 
 // ── Tek kanal kontrol bileşeni ─────────────────────────────────────────────────
 function ChannelControl({
-  channel, device, api, state, onStateChange, presets, onPresetsReload,
+  channel, device, api, state, onStateChange, presets, onPresetsReload, pin,
 }: {
   channel:        Channel;
   device:         Device;
@@ -145,6 +171,7 @@ function ChannelControl({
   onStateChange:  (s: Partial<ChannelState>) => void;
   presets:        Preset[];
   onPresetsReload: () => void;
+  pin:            string;
 }) {
   const ch = channel.id;
   const hasColor   = channelHasCapability(channel, 'color');
@@ -195,7 +222,10 @@ function ChannelControl({
   useEffect(() => {
     if (autoOpen) {
       setRulesLoading(true);
-      Promise.all([listRules(device.ip), getESP32Time(device.ip)]).then(([ruleList, time]) => {
+      Promise.all([
+        listRules(device.ip, pin, ch),
+        getESP32Time(device.ip, pin),
+      ]).then(([ruleList, time]) => {
         // Bu kanalın kurallarını filtrele
         const filtered = (ruleList as any[]).filter((r: any) => (r.channel ?? 0) === ch);
         setRules(filtered.map((r) => ({ ...r, notificationId: undefined })));
@@ -278,7 +308,14 @@ function ChannelControl({
   // Otomasyon
   const handleAddDaily = async () => {
     setSavingRule(true);
-    const result = await addDailyRule(device.ip, { hour: dailyHour, minute: dailyMinute, action: dailyAction, deviceName: `${device.name} - ${channel.name}` });
+    const result = await addDailyRule(device.ip, {
+      hour:       dailyHour,
+      minute:     dailyMinute,
+      action:     dailyAction,
+      deviceName: `${device.name} - ${channel.name}`,
+      pin:        pin,
+      channel:    ch,
+    });
     setSavingRule(false);
     if (result) {
       setRules((prev) => [...prev, { id: result.id, active: true, type: 0, hour: dailyHour, minute: dailyMinute, action: dailyAction, triggerAt: 0, triggered: false, channel: ch, notificationId: result.notificationId }]);
@@ -290,7 +327,13 @@ function ChannelControl({
     const total = cdHour*3600+cdMinute*60;
     if (total===0) { showError('En az 1 dakika gir'); return; }
     setSavingRule(true);
-    const result = await addCountdownRule(device.ip, { countdown: total, action: cdAction, deviceName: `${device.name} - ${channel.name}` });
+    const result = await addCountdownRule(device.ip, {
+      countdown:  total,
+      action:     cdAction,
+      deviceName: `${device.name} - ${channel.name}`,
+      pin:        pin,
+      channel:    ch,
+    });
     setSavingRule(false);
     if (result) {
       const triggerAt = Math.floor(Date.now()/1000)+total;
@@ -302,13 +345,16 @@ function ChannelControl({
   const handleDeleteRule = (rule: LocalRule) => {
     Alert.alert('Kuralı Sil', `"${ruleDescription(rule)}" silinsin mi?`, [
       { text: 'İptal', style: 'cancel' },
-      { text: 'Sil', style: 'destructive', onPress: async () => { await deleteRule(device.ip, rule.id, rule.notificationId); setRules((prev) => prev.filter((r) => r.id!==rule.id)); }},
+      { text: 'Sil', style: 'destructive', onPress: async () => {
+        await deleteRule(device.ip, rule.id, pin, rule.notificationId);
+        setRules((prev) => prev.filter((r) => r.id !== rule.id));
+      }},
     ]);
   };
 
   const handleToggleRule = async (rule: LocalRule) => {
-    const result = await toggleRule(device.ip, rule.id);
-    if (result!==null) setRules((prev) => prev.map((r) => r.id===rule.id ? { ...r, active: result.active } : r));
+    const result = await toggleRule(device.ip, rule.id, pin);
+    if (result !== null) setRules((prev) => prev.map((r) => r.id === rule.id ? { ...r, active: result.active } : r));
   };
 
   const staticPresets = presets.filter((p) => p.type === 'static');
@@ -503,7 +549,10 @@ function ChannelControl({
 
       {/* Otomasyon Modal */}
       <Modal visible={formMode!=='none'} transparent animationType="slide" onRequestClose={()=>setFormMode('none')}>
-        <View style={cs.modalOverlay}>
+        <KeyboardAvoidingView
+          style={cs.modalOverlay}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        >
           <TouchableOpacity style={cs.modalBackdrop} onPress={()=>setFormMode('none')} activeOpacity={1} />
           <View style={cs.modalCard}>
             <Text style={cs.ruleFormTitle}>{formMode==='daily'?'// GÜNLİK ZAMANLAYICI':'// GERİ SAYIM'}</Text>
@@ -533,7 +582,7 @@ function ChannelControl({
               </TouchableOpacity>
             </View>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
     </View>
   );
@@ -585,6 +634,8 @@ export default function ControlScreen({ device, devices, onOpenList, onAddDevice
 
   // Her kanal için bağımsız state
   const safeChannels = device.channels ?? [{ id: 0, name: 'Şerit', capabilities: device.capabilities ?? ['on_off','brightness','color','effects'], leds: device.leds }];
+  const [viewerWidth, setViewerWidth] = useState(CARD_W);
+  const viewerHeight = Math.round(viewerWidth * 1.1);
 
   const [channelStates, setChannelStates] = useState<ChannelState[]>(
     safeChannels.map(() => ({
@@ -785,6 +836,7 @@ export default function ControlScreen({ device, devices, onOpenList, onAddDevice
             }}
             activeOpacity={0.9}
             style={styles.modelViewerWrap}
+            onLayout={(e) => setViewerWidth(e.nativeEvent.layout.width)}
           >
             <Model3DViewer
               parts={device.parts ?? []}
@@ -793,8 +845,8 @@ export default function ControlScreen({ device, devices, onOpenList, onAddDevice
               lightColor={
                 channelStates.find((s) => s.isOn)?.color ?? { r: 255, g: 255, b: 255 }
               }
-              width={SCREEN_W - Spacing.xl * 2}
-              height={Math.round((SCREEN_W - Spacing.xl * 2) * 1.1)}
+              width={viewerWidth}
+              height={viewerHeight}
             />
 
             {/* Sağ üst — durum badge */}
@@ -923,6 +975,7 @@ export default function ControlScreen({ device, devices, onOpenList, onAddDevice
               onStateChange={(s) => updateChannelState(index, s)}
               presets={presets}
               onPresetsReload={loadPresets}
+              pin={currentPin}
             />
           </View>
         ))}
@@ -968,11 +1021,12 @@ const styles = StyleSheet.create({
   modelCardOuter: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: Spacing.sm,
+    justifyContent: 'center',
+    gap: SLIDE_GAP,
     marginBottom: Spacing.md,
   },
   modelCard: {
-    flex: 1,
+    width: CARD_W,
     borderWidth: 1,
     borderColor: Colors.border,
     borderRadius: Radius.md,
@@ -981,7 +1035,7 @@ const styles = StyleSheet.create({
   },
   // Slide ok butonları
   slideBtn: {
-    width: 32,
+    width: SLIDE_BTN_W,
     height: 64,
     alignItems: 'center',
     justifyContent: 'center',

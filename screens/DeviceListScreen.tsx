@@ -35,6 +35,7 @@ type Props = {
   activeDeviceId: string;
   onSelect:  (device: Device) => void;
   onAddNew:  () => void;
+  onSetup:   () => void;
   onBack:    () => void;
   onStart:   () => void;
 };
@@ -53,6 +54,7 @@ export default function DeviceListScreen({
   activeDeviceId,
   onSelect,
   onAddNew,
+  onSetup,
   onBack,
   onStart,
 }: Props) {
@@ -377,7 +379,24 @@ export default function DeviceListScreen({
           <Text style={styles.backText}>← GERİ</Text>
         </TouchableOpacity>
         <Text style={styles.headerBrand}>CİHAZLAR</Text>
-        <TouchableOpacity onPress={onAddNew} style={styles.addBtn}>
+        <TouchableOpacity
+          onPress={() => Alert.alert(
+            'Cihaz Ekle',
+            'Nasıl eklemek istersiniz?',
+            [
+              {
+                text: 'Yeni Kurulum',
+                onPress: onSetup,
+              },
+              {
+                text: 'Ağda Ara',
+                onPress: onAddNew,
+              },
+              { text: 'İptal', style: 'cancel' },
+            ]
+          )}
+          style={styles.addBtn}
+        >
           <Text style={styles.addText}>+ EKLE</Text>
         </TouchableOpacity>
       </View>
