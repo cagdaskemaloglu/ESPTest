@@ -30,7 +30,7 @@ const ESP32_AP_IP      = '192.168.4.1';
 const PING_INTERVAL_MS = 3000;
 const PING_TIMEOUT_MS  = 2000;
 
-type Props = { onDone: () => void };
+type Props = { onDone: () => void; onBack: () => void };
 type ConnState = 'checking' | 'connected' | 'disconnected';
 
 type WifiNetwork = { ssid: string; rssi: number };
@@ -51,7 +51,7 @@ function signalLabel(rssi: number): string {
   return 'Çok Zayıf';
 }
 
-export default function SetupScreen({ onDone }: Props) {
+export default function SetupScreen({ onDone, onBack }: Props) {
   const [ssid, setSsid]         = useState('');
   const [password, setPassword] = useState('');
   const [pin, setPin]           = useState('');
@@ -199,6 +199,9 @@ export default function SetupScreen({ onDone }: Props) {
       >
         {/* Header */}
         <View style={styles.header}>
+          <TouchableOpacity onPress={onBack} style={styles.headerBackBtn}>
+            <Text style={styles.headerBackText}>← GERİ</Text>
+          </TouchableOpacity>
           <Text style={styles.headerBrand}>TORVA · LAB</Text>
           <View style={styles.headerRight}>
             <View style={[styles.statusDot, { backgroundColor: dotColor }]} />
@@ -501,9 +504,6 @@ export default function SetupScreen({ onDone }: Props) {
                 {loading ? '[ BAĞLANIYOR... ]' : '[ KURULUMU TAMAMLA ]'}
               </Text>
             </TouchableOpacity>
-            <TouchableOpacity onPress={onDone} activeOpacity={0.75} style={styles.secondaryBtn}>
-              <Text style={styles.secondaryBtnText}>← GERİ</Text>
-            </TouchableOpacity>
           </View>
 
         </ScrollView>
@@ -525,6 +525,8 @@ const styles = StyleSheet.create({
   header: { width: '100%', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingTop: Spacing.lg },
   headerBrand: { fontFamily: Fonts.mono, fontSize: 10, letterSpacing: 4, color: Colors.text2 },
   headerRight: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
+  headerBackBtn: { paddingVertical: 4, paddingRight: Spacing.md },
+  headerBackText: { fontFamily: Fonts.mono, fontSize: 11, letterSpacing: 1, color: Colors.text2 },
   statusDot: { width: 6, height: 6, borderRadius: 999 },
   headerMeta: { fontFamily: Fonts.mono, fontSize: 10, letterSpacing: 2, color: Colors.text3 },
   headerDivider: { height: StyleSheet.hairlineWidth, backgroundColor: Colors.border, marginTop: Spacing.md },

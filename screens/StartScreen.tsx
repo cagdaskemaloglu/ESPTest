@@ -31,9 +31,10 @@ export const SETUP_DONE_KEY = 'torva_setup_done';
 type Props = {
   onSetup: () => void;
   onScan:  () => void;
+  onBack?: () => void;
 };
 
-export default function StartScreen({ onSetup, onScan }: Props) {
+export default function StartScreen({ onSetup, onScan, onBack }: Props) {
   const [setupDone, setSetupDone] = useState(false);
   const [loading, setLoading]     = useState(true);
 
@@ -67,6 +68,13 @@ export default function StartScreen({ onSetup, onScan }: Props) {
 
       {/* Header */}
       <View style={styles.header}>
+        {onBack ? (
+          <TouchableOpacity onPress={onBack} style={styles.backBtn}>
+            <Text style={styles.backText}>← GERİ</Text>
+          </TouchableOpacity>
+        ) : (
+          <View style={styles.backBtn} />
+        )}
         <Text style={styles.headerBrand}>TORVA · LAB</Text>
         <Text style={styles.headerMeta}>v2.0</Text>
       </View>
@@ -178,6 +186,7 @@ const styles = StyleSheet.create({
   scanline: { width: '100%', height: StyleSheet.hairlineWidth, backgroundColor: Colors.cyan },
 
   header: {
+    width: '100%',
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
@@ -185,8 +194,10 @@ const styles = StyleSheet.create({
     paddingTop: Spacing.lg + 16,
   },
   headerBrand: { fontFamily: Fonts.mono, fontSize: 10, letterSpacing: 4, color: Colors.text2 },
-  headerMeta: { fontFamily: Fonts.mono, fontSize: 10, letterSpacing: 2, color: Colors.text3 },
+  headerMeta:  { fontFamily: Fonts.mono, fontSize: 10, letterSpacing: 2, color: Colors.text3 },
   headerDivider: { height: StyleSheet.hairlineWidth, backgroundColor: Colors.border, marginTop: Spacing.md },
+  backBtn: { minWidth: 60 },
+  backText: { fontFamily: Fonts.mono, fontSize: 11, letterSpacing: 1, color: Colors.text2 },
 
   content: {
     flex: 1,

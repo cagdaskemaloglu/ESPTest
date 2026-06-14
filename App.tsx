@@ -45,6 +45,7 @@ export default function App() {
   const [devices, setDevices]           = useState<Device[]>([]);
   const [appReady, setAppReady]         = useState(false);
   const [splashDone, setSplashDone]     = useState(false);
+  const [scanDelay, setScanDelay]       = useState(0);
 
   useEffect(() => { initApp(); }, []);
 
@@ -98,7 +99,8 @@ export default function App() {
     return (
       <StartScreen
         onSetup={() => setStep('setup')}
-        onScan={()  => setStep('scan')}
+        onScan={() => { setScanDelay(0); setStep('scan'); }}
+        onBack={devices.length > 0 ? () => setStep('control') : undefined}
       />
     );
   }
@@ -106,7 +108,8 @@ export default function App() {
   if (step === 'setup') {
     return (
       <SetupScreen
-        onDone={() => setStep('scan')}
+        onDone={() => { setScanDelay(12000); setStep('scan'); }}
+        onBack={() => setStep('start')}
       />
     );
   }
@@ -117,6 +120,7 @@ export default function App() {
         onDeviceAdded={(device)    => selectDevice(device)}
         onDeviceSelected={(device) => selectDevice(device)}
         onBack={() => activeDevice ? setStep('control') : setStep('start')}
+        initialDelay={scanDelay}
       />
     );
   }
@@ -126,7 +130,7 @@ export default function App() {
       <DeviceListScreen
         activeDeviceId={activeDevice.id}
         onSelect={(device) => selectDevice(device)}
-        onAddNew={() => setStep('scan')}
+        onAddNew={() => { setScanDelay(0); setStep('scan'); }}
         onSetup={() => setStep('setup')}
         onBack={() => setStep('control')}
         onStart={() => setStep('start')}
@@ -144,7 +148,7 @@ export default function App() {
             device={activeDevice}
             devices={devices}
             onOpenList={()           => setStep('deviceList')}
-            onAddDevice={()          => setStep('setup')}
+            onAddDevice={()          => setStep('start')}
             onDeviceChange={(device) => selectDevice(device)}
           />
         )}

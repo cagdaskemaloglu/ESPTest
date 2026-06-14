@@ -31,6 +31,7 @@ type Props = {
   onDeviceAdded:    (device: Device) => void;
   onDeviceSelected: (device: Device) => void;
   onBack:           () => void;
+  initialDelay?:    number; // ms — tarama başlamadan önce bekleme (ESP32 bağlanıyor)
 };
 
 const generateId = () =>
@@ -43,7 +44,6 @@ const TYPE_META: Record<DeviceType, { label: string; color: string; bg: string }
   unknown:    { label: 'Bilinmiyor',      color: Colors.text3,  bg: Colors.bg4 },
 };
 
-// Yeni cihaz kayıt formu state
 type FormState = {
   ip:          string;
   deviceName:  string;
@@ -51,21 +51,56 @@ type FormState = {
   pinRequired: boolean;
 };
 
-export default function ScanScreen({ onDeviceAdded, onDeviceSelected, onBack }: Props) {
+export default function ScanScreen({ onDeviceAdded, onDeviceSelected, onBack, initialDelay = 0 }: Props) {
   const [scanning, setScanning]           = useState(false);
   const [progress, setProgress]           = useState({ scanned: 0, total: 254 });
   const [foundDevices, setFoundDevices]   = useState<FoundDevice[]>([]);
   const [registeredDevices, setRegistered] = useState<Device[]>([]);
   const [form, setForm]                   = useState<FormState | null>(null);
   const [saving, setSaving]               = useState(false);
+
+  // Geri sayım state'leri
+  const [countdown, setCountdown]         = useState(Math.ceil(initialDelay / 1000));
+  const [delayDone, setDelayDone]         = useState(initialDelay === 0);
+  const countdownRef                      = useRef<ReturnType<typeof setInterval> | null>(null);
   const [pinError, setPinError]           = useState<string | null>(null);
 
   const mountedRef = useRef(true);
 
+  // Geri sayım — initialDelay varsa taramadan önce bekle
   useEffect(() => {
     getDevices().then(setRegistered);
-    return () => { mountedRef.current = false; };
+    return () => {
+      mountedRef.current = false;
+      if (countdownRef.current) clearInterval(countdownRef.current);
+    };
   }, []);
+
+  useEffect(() => {
+    if (initialDelay === 0) return;
+    setCountdown(Math.ceil(initialDelay / 1000));
+    setDelayDone(false);
+
+    countdownRef.current = setInterval(() => {
+      setCountdown((prev) => {
+        if (prev <= 1) {
+          if (countdownRef.current) clearInterval(countdownRef.current);
+          setDelayDone(true);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => {
+      if (countdownRef.current) clearInterval(countdownRef.current);
+    };
+  }, [initialDelay]);
+
+  // Delay bitince otomatik tara
+  useEffect(() => {
+    if (delayDone && !scanning) startScan();
+  }, [delayDone]);
 
   const startScan = async () => {
     setScanning(true);
@@ -154,6 +189,9 @@ export default function ScanScreen({ onDeviceAdded, onDeviceSelected, onBack }: 
     ? Math.round((progress.scanned / progress.total) * 100)
     : 0;
 
+  const totalSecs = Math.ceil(initialDelay / 1000);
+  const countdownPct = totalSecs > 0 ? ((totalSecs - countdown) / totalSecs) * 100 : 100;
+
   return (
     <SafeAreaView style={styles.root}>
       <KeyboardAvoidingView
@@ -172,6 +210,35 @@ export default function ScanScreen({ onDeviceAdded, onDeviceSelected, onBack }: 
           </View>
         </View>
         <View style={styles.headerDivider} />
+
+        {/* ── Geri sayım ekranı ── */}
+        {!delayDone && (
+          <View style={styles.countdownWrap}>
+            <Text style={styles.countdownTitle}>// ESP32 BAĞLANIYOR</Text>
+            <Text style={styles.countdownDesc}>
+              Cihaz yeni ağa bağlanıyor, lütfen bekleyin...
+            </Text>
+
+            {/* Progress bar */}
+            <View style={styles.countdownBarTrack}>
+              <View style={[styles.countdownBarFill, { width: `${countdownPct}%` }]} />
+            </View>
+
+            <Text style={styles.countdownSecs}>{countdown} sn</Text>
+
+            {/* Hemen ara butonu */}
+            <TouchableOpacity
+              onPress={() => {
+                if (countdownRef.current) clearInterval(countdownRef.current);
+                setDelayDone(true);
+              }}
+              style={styles.countdownSkipBtn}
+              activeOpacity={0.75}
+            >
+              <Text style={styles.countdownSkipText}>[ Hemen Ara ]</Text>
+            </TouchableOpacity>
+          </View>
+        )}
 
         <ScrollView
           contentContainerStyle={styles.scrollContent}
@@ -448,6 +515,62 @@ const styles = StyleSheet.create({
   statusDot: { width: 6, height: 6, borderRadius: 999 },
   headerMeta: { fontFamily: Fonts.mono, fontSize: 10, letterSpacing: 2, color: Colors.text3 },
   headerDivider: { height: StyleSheet.hairlineWidth, backgroundColor: Colors.border, marginTop: Spacing.md },
+
+  // Countdown
+  countdownWrap: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: Spacing.xl,
+    gap: Spacing.lg,
+  },
+  countdownTitle: {
+    fontFamily: Fonts.mono,
+    fontSize: 10,
+    letterSpacing: 4,
+    color: Colors.cyan,
+  },
+  countdownDesc: {
+    fontFamily: Fonts.sans,
+    fontSize: 14,
+    color: Colors.text2,
+    textAlign: 'center',
+    lineHeight: 22,
+  },
+  countdownBarTrack: {
+    width: '100%',
+    height: 2,
+    backgroundColor: Colors.border,
+    borderRadius: 1,
+    overflow: 'hidden',
+    marginTop: Spacing.sm,
+  },
+  countdownBarFill: {
+    height: '100%',
+    backgroundColor: Colors.cyan,
+    borderRadius: 1,
+  },
+  countdownSecs: {
+    fontFamily: Fonts.mono,
+    fontSize: 28,
+    letterSpacing: 4,
+    color: Colors.cyan,
+  },
+  countdownSkipBtn: {
+    marginTop: Spacing.md,
+    paddingHorizontal: Spacing.xl,
+    paddingVertical: Spacing.md,
+    borderWidth: 1,
+    borderColor: Colors.border2,
+    borderRadius: Radius.sm,
+    backgroundColor: Colors.bg3,
+  },
+  countdownSkipText: {
+    fontFamily: Fonts.mono,
+    fontSize: 11,
+    letterSpacing: 2,
+    color: Colors.text2,
+  },
   titleBlock: { gap: Spacing.sm },
   titleEyebrow: { fontFamily: Fonts.mono, fontSize: 10, letterSpacing: 4, color: Colors.cyan },
   titleMain: { fontFamily: Fonts.sans, fontSize: 42, lineHeight: 48, letterSpacing: -0.5, color: Colors.text, fontWeight: '300' },
