@@ -1,11 +1,5 @@
 /**
  * screens/ControlScreen.tsx
- *
- * channels.length === 1 → tek kanallı UI (mevcut görünüm)
- * channels.length > 1   → her kanal için ayrı bölüm
- *
- * Her kanal bağımsız: toggle, brightness, renk, sahneler, otomasyon
- * API isteklerinde ?channel=N parametresi gönderilir
  */
 
 import Slider from '@react-native-community/slider';
@@ -46,23 +40,21 @@ import {
 import { Colors, Fonts, Radius, Spacing } from '../theme/colors';
 import { Channel, Device, channelHasCapability } from '../types/Device';
 
-const SLIDE_BTN_W  = 36;
-const SLIDE_GAP    = Spacing.sm;
-const SCREEN_W     = Dimensions.get('window').width;
-// Çok cihazda: her iki yanda ok butonu + gap hesabı
-// Tek cihazda da aynı boyutu kullanalım — tutarlılık için
-const CARD_W = SCREEN_W - Spacing.xl * 2 - (SLIDE_BTN_W + SLIDE_GAP) * 2;
+const SLIDE_BTN_W = 36;
+const SLIDE_GAP   = Spacing.sm;
+const SCREEN_W    = Dimensions.get('window').width;
+const CARD_W      = SCREEN_W - Spacing.xl * 2 - (SLIDE_BTN_W + SLIDE_GAP) * 2;
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
 }
 
 type Props = {
-  device:          Device;
-  devices:         Device[];
-  onOpenList:      () => void;
-  onAddDevice:     () => void;
-  onDeviceChange:  (device: Device) => void;
+  device:         Device;
+  devices:        Device[];
+  onOpenList:     () => void;
+  onAddDevice:    () => void;
+  onDeviceChange: (device: Device) => void;
 };
 
 function rgbToHex(r: number, g: number, b: number) {
@@ -78,10 +70,9 @@ function speedLabel(speed: number): string {
 
 type LocalRule = AutomationRule & { notificationId?: string; triggered?: boolean };
 
-// ── Kanal durumu ──────────────────────────────────────────────────────────────
 type ChannelState = {
   isOn:        boolean;
-  brightness:  number; // 0-100
+  brightness:  number;
   color:       { r: number; g: number; b: number };
   activeEffect: string | null;
 };
@@ -122,21 +113,9 @@ function NumberPicker({ label, value, min, max, onChange, onFocus }: {
                 const p = parseInt(clean, 10);
                 if (!isNaN(p)) onChange(clamp(p));
               }}
-              onBlur={() => {
-                const p = parseInt(inputVal, 10);
-                if (!isNaN(p)) onChange(clamp(p));
-                setEditing(false);
-              }}
-              onSubmitEditing={() => {
-                const p = parseInt(inputVal, 10);
-                if (!isNaN(p)) onChange(clamp(p));
-                setEditing(false);
-              }}
-              keyboardType="number-pad"
-              maxLength={2}
-              autoFocus
-              selectTextOnFocus
-              style={np.displayInput}
+              onBlur={() => { const p = parseInt(inputVal, 10); if (!isNaN(p)) onChange(clamp(p)); setEditing(false); }}
+              onSubmitEditing={() => { const p = parseInt(inputVal, 10); if (!isNaN(p)) onChange(clamp(p)); setEditing(false); }}
+              keyboardType="number-pad" maxLength={2} autoFocus selectTextOnFocus style={np.displayInput}
             />
           ) : (
             <Text style={np.displayText}>{String(value).padStart(2,'0')}</Text>
@@ -160,39 +139,38 @@ const np = StyleSheet.create({
   displayInput: { fontFamily: Fonts.mono, fontSize: 24, color: Colors.cyan, letterSpacing: 2, textAlign: 'center', width: '100%', padding: 0 },
 });
 
-// ── Tek kanal kontrol bileşeni ─────────────────────────────────────────────────
+// ── ChannelControl ────────────────────────────────────────────────────────────
 function ChannelControl({
-  channel, device, api, state, onStateChange, presets, onPresetsReload, pin,
+  channel, device, api, state, onStateChange, presets, onPresetsReload, pin, connStatus,
 }: {
-  channel:        Channel;
-  device:         Device;
-  api:            ReturnType<typeof createAPI>;
-  state:          ChannelState;
-  onStateChange:  (s: Partial<ChannelState>) => void;
-  presets:        Preset[];
+  channel:         Channel;
+  device:          Device;
+  api:             ReturnType<typeof createAPI>;
+  state:           ChannelState;
+  onStateChange:   (s: Partial<ChannelState>) => void;
+  presets:         Preset[];
   onPresetsReload: () => void;
-  pin:            string;
+  pin:             string;
+  connStatus:      'online' | 'offline' | 'checking';
 }) {
   const ch = channel.id;
   const hasColor   = channelHasCapability(channel, 'color');
   const hasBright  = channelHasCapability(channel, 'brightness');
   const hasEffects = channelHasCapability(channel, 'effects');
 
-  const [pickerOpen,   setPickerOpen]   = useState(false);
-  const [presetsOpen,  setPresetsOpen]  = useState(false);
-  const [autoOpen,     setAutoOpen]     = useState(false);
-  const [errorMsg,     setErrorMsg]     = useState<string | null>(null);
-
-  // Sahneler
-  const [applyingId,      setApplyingId]      = useState<string | null>(null);
-  const [activePresetId,  setActivePresetId]  = useState<string | null>(null);
-  const [expandedEffectId,setExpandedEffectId]= useState<string | null>(null);
+  const [pickerOpen,      setPickerOpen]      = useState(false);
+  const [presetsOpen,     setPresetsOpen]      = useState(false);
+  const [autoOpen,        setAutoOpen]         = useState(false);
+  const [errorMsg,        setErrorMsg]         = useState<string | null>(null);
+  const [applyingId,      setApplyingId]       = useState<string | null>(null);
+  // activePresetId — local state, sadece bu session için
+  const [activePresetId,  setActivePresetId]   = useState<string | null>(null);
+  const [expandedEffectId,setExpandedEffectId] = useState<string | null>(null);
   const [editSpeed, setEditSpeed] = useState(128);
   const [editR, setEditR] = useState(0);
   const [editG, setEditG] = useState(150);
   const [editB, setEditB] = useState(255);
 
-  // Otomasyon
   const [rules,       setRules]       = useState<LocalRule[]>([]);
   const [rulesLoading,setRulesLoading]= useState(false);
   const [esp32Time,   setEsp32Time]   = useState<string | null>(null);
@@ -201,16 +179,16 @@ function ChannelControl({
   const [dailyHour,   setDailyHour]   = useState(22);
   const [dailyMinute, setDailyMinute] = useState(0);
   const [dailyAction, setDailyAction] = useState<0|1>(0);
-  const [cdHour,   setCdHour]   = useState(0);
-  const [cdMinute, setCdMinute] = useState(30);
-  const [cdAction, setCdAction] = useState<0|1>(0);
+  const [cdHour,      setCdHour]      = useState(0);
+  const [cdMinute,    setCdMinute]    = useState(30);
+  const [cdAction,    setCdAction]    = useState<0|1>(0);
 
   const debounceRef = useRef<ReturnType<typeof setTimeout>|null>(null);
   const errorTimer  = useRef<ReturnType<typeof setTimeout>|null>(null);
   const timerRef    = useRef<ReturnType<typeof setInterval>|null>(null);
 
-  const colorCss      = hasColor ? `rgb(${state.color.r},${state.color.g},${state.color.b})` : Colors.cyan;
-  const progressPct   = state.isOn ? '100%' : '0%';
+  const colorCss    = hasColor ? `rgb(${state.color.r},${state.color.g},${state.color.b})` : Colors.cyan;
+  const progressPct = state.isOn ? '100%' : '0%';
 
   const showError = (msg: string) => {
     setErrorMsg(msg);
@@ -218,7 +196,11 @@ function ChannelControl({
     errorTimer.current = setTimeout(() => setErrorMsg(null), 3000);
   };
 
-  // Otomasyon yükle
+  // Cihaz değişince activePresetId sıfırla
+  useEffect(() => {
+    setActivePresetId(null);
+  }, [device.id]);
+
   useEffect(() => {
     if (autoOpen) {
       setRulesLoading(true);
@@ -226,7 +208,6 @@ function ChannelControl({
         listRules(device.ip, pin, ch),
         getESP32Time(device.ip, pin),
       ]).then(([ruleList, time]) => {
-        // Bu kanalın kurallarını filtrele
         const filtered = (ruleList as any[]).filter((r: any) => (r.channel ?? 0) === ch);
         setRules(filtered.map((r) => ({ ...r, notificationId: undefined })));
         if (time) setEsp32Time(`${String(time.hour).padStart(2,'0')}:${String(time.minute).padStart(2,'0')}`);
@@ -244,11 +225,17 @@ function ChannelControl({
     setter((p) => !p);
   };
 
-  // LED kontrol
+  // ── Toggle ────────────────────────────────────────────────────────────────
+  // Offline kontrolü — bağlı değilse işlem yapma
+  // Toggle off → activePresetId ve activeEffect temizle
+  // Toggle on  → efektsiz başla (activePresetId temizle)
   const toggle = async () => {
+    if (connStatus !== 'online') { showError('Cihaz çevrimdışı'); return; }
     const res = await api.get(state.isOn ? '/led/off' : '/led/on', undefined, ch);
-    if (res.ok) { onStateChange({ isOn: !state.isOn, activeEffect: state.isOn ? null : state.activeEffect }); }
-    else if (res.error?.type !== 'unauthorized') showError('Bağlantı hatası');
+    if (res.ok) {
+      setActivePresetId(null);
+      onStateChange({ isOn: !state.isOn, activeEffect: null });
+    } else if (res.error?.type !== 'unauthorized') showError('Bağlantı hatası');
   };
 
   const handleSliderChange = (value: number) => {
@@ -273,13 +260,10 @@ function ChannelControl({
     await saveColor(device.id, { r, g, b });
   };
 
-  // Sahneler
   const handleApplyPreset = async (preset: Preset, overrides?: Partial<Preset>) => {
     const merged = { ...preset, ...overrides };
     setApplyingId(preset.id);
     try {
-      // applyPreset ip'e gönderir — channel ekle
-      const baseUrl = `http://${device.ip}`;
       if (merged.type === 'static') {
         await api.get('/led/color', { r: String(merged.r), g: String(merged.g), b: String(merged.b) }, ch);
         await api.get('/led/brightness', { value: String(merged.brightness ?? 255) }, ch);
@@ -301,21 +285,17 @@ function ChannelControl({
     if (DEFAULT_IDS.has(preset.id)) return;
     Alert.alert('Preseti Sil', `"${preset.name}" silinsin mi?`, [
       { text: 'İptal', style: 'cancel' },
-      { text: 'Sil', style: 'destructive', onPress: async () => { await deletePreset(preset.id); onPresetsReload(); if (activePresetId===preset.id) setActivePresetId(null); }},
+      { text: 'Sil', style: 'destructive', onPress: async () => {
+        await deletePreset(preset.id);
+        onPresetsReload();
+        if (activePresetId === preset.id) setActivePresetId(null);
+      }},
     ]);
   };
 
-  // Otomasyon
   const handleAddDaily = async () => {
     setSavingRule(true);
-    const result = await addDailyRule(device.ip, {
-      hour:       dailyHour,
-      minute:     dailyMinute,
-      action:     dailyAction,
-      deviceName: `${device.name} - ${channel.name}`,
-      pin:        pin,
-      channel:    ch,
-    });
+    const result = await addDailyRule(device.ip, { hour: dailyHour, minute: dailyMinute, action: dailyAction, deviceName: `${device.name} - ${channel.name}`, pin, channel: ch });
     setSavingRule(false);
     if (result) {
       setRules((prev) => [...prev, { id: result.id, active: true, type: 0, hour: dailyHour, minute: dailyMinute, action: dailyAction, triggerAt: 0, triggered: false, channel: ch, notificationId: result.notificationId }]);
@@ -327,13 +307,7 @@ function ChannelControl({
     const total = cdHour*3600+cdMinute*60;
     if (total===0) { showError('En az 1 dakika gir'); return; }
     setSavingRule(true);
-    const result = await addCountdownRule(device.ip, {
-      countdown:  total,
-      action:     cdAction,
-      deviceName: `${device.name} - ${channel.name}`,
-      pin:        pin,
-      channel:    ch,
-    });
+    const result = await addCountdownRule(device.ip, { countdown: total, action: cdAction, deviceName: `${device.name} - ${channel.name}`, pin, channel: ch });
     setSavingRule(false);
     if (result) {
       const triggerAt = Math.floor(Date.now()/1000)+total;
@@ -360,20 +334,21 @@ function ChannelControl({
   const staticPresets = presets.filter((p) => p.type === 'static');
   const effectPresets = presets.filter((p) => p.type === 'effect');
 
+  // Sahneler rozetini göster: ışık açık VE aktif preset var VE efekt var
+  const showFxBadge = state.isOn && activePresetId !== null && state.activeEffect !== null;
+  const activePrestName = presets.find(p => p.id === activePresetId)?.name ?? null;
+
   return (
     <View style={cs.channelWrap}>
-      {/* Hata banner */}
       {errorMsg && <View style={cs.errorBanner}><Text style={cs.errorBannerText}>⚠ {errorMsg}</Text></View>}
 
-      {/* Progress bar */}
       <View style={cs.progressTrack}>
         <View style={[cs.progressFill, {
           width: progressPct,
-          backgroundColor: state.activeEffect ? Colors.purple : colorCss,
+          backgroundColor: showFxBadge ? Colors.purple : colorCss,
         }]} />
       </View>
 
-      {/* Parlaklık */}
       {hasBright && (
         <Animated.View style={[cs.sliderSection, { opacity: state.isOn ? 1 : 0.4 }]}>
           <View style={cs.sliderHeader}>
@@ -392,7 +367,6 @@ function ChannelControl({
         </Animated.View>
       )}
 
-      {/* Renk accordion */}
       {hasColor && (
         <View style={cs.accordion}>
           <TouchableOpacity onPress={() => toggleAccordion(setPickerOpen)} activeOpacity={0.8} style={cs.accordionHeader}>
@@ -415,15 +389,16 @@ function ChannelControl({
         </View>
       )}
 
-      {/* Sahneler accordion */}
       {hasEffects && (
         <View style={cs.accordion}>
           <TouchableOpacity onPress={() => { toggleAccordion(setPresetsOpen); }} activeOpacity={0.8} style={cs.accordionHeader}>
             <View style={cs.accordionLeft}>
               <Text style={cs.accordionLabel}>SAHNELER</Text>
-              {state.activeEffect && <Text style={cs.accordionNote}>{state.activeEffect.toUpperCase()} aktif</Text>}
+              {showFxBadge && activePrestName && (
+                <Text style={cs.accordionNote}>{activePrestName} aktif</Text>
+              )}
             </View>
-            {state.activeEffect && <View style={cs.fxBadge}><Text style={cs.fxBadgeText}>FX</Text></View>}
+            {showFxBadge && <View style={cs.fxBadge}><Text style={cs.fxBadgeText}>FX</Text></View>}
             <Text style={[cs.chevron, presetsOpen && cs.chevronOpen]}>›</Text>
           </TouchableOpacity>
           {presetsOpen && (
@@ -498,7 +473,6 @@ function ChannelControl({
         </View>
       )}
 
-      {/* Otomasyon accordion */}
       <View style={cs.accordion}>
         <TouchableOpacity onPress={() => toggleAccordion(setAutoOpen)} activeOpacity={0.8} style={cs.accordionHeader}>
           <View style={cs.accordionLeft}>
@@ -547,12 +521,8 @@ function ChannelControl({
         )}
       </View>
 
-      {/* Otomasyon Modal */}
       <Modal visible={formMode!=='none'} transparent animationType="slide" onRequestClose={()=>setFormMode('none')}>
-        <KeyboardAvoidingView
-          style={cs.modalOverlay}
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        >
+        <KeyboardAvoidingView style={cs.modalOverlay} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
           <TouchableOpacity style={cs.modalBackdrop} onPress={()=>setFormMode('none')} activeOpacity={1} />
           <View style={cs.modalCard}>
             <Text style={cs.ruleFormTitle}>{formMode==='daily'?'// GÜNLİK ZAMANLAYICI':'// GERİ SAYIM'}</Text>
@@ -590,49 +560,38 @@ function ChannelControl({
 
 // ── Ana ControlScreen ─────────────────────────────────────────────────────────
 export default function ControlScreen({ device, devices, onOpenList, onAddDevice, onDeviceChange }: Props) {
-  const [currentPin, setCurrentPin]   = useState(device.pin ?? '');
-  const [showPinScreen, setShowPinScreen] = useState(false);
-  const [pinScreenMode, setPinScreenMode] = useState<'enter'|'setup'>('enter');
-  const [pinError, setPinError]           = useState<string | null>(null);
-  const [pinLoading, setPinLoading]       = useState(false);
-  const [presets, setPresets]             = useState<Preset[]>([]);
+  const [currentPin,     setCurrentPin]     = useState(device.pin ?? '');
+  const [showPinScreen,  setShowPinScreen]  = useState(false);
+  const [pinScreenMode,  setPinScreenMode]  = useState<'enter'|'setup'>('enter');
+  const [pinError,       setPinError]       = useState<string | null>(null);
+  const [pinLoading,     setPinLoading]     = useState(false);
+  const [presets,        setPresets]        = useState<Preset[]>([]);
 
-  // Slide animasyonu
   const slideAnim    = useRef(new Animated.Value(0)).current;
-  const [sliding, setSliding] = useState(false);
+  const [sliding,    setSliding]    = useState(false);
+
   const currentIndex  = devices.findIndex((d) => d.id === device.id);
-  const hasPrev       = currentIndex > 0;
-  const hasNext       = currentIndex < devices.length - 1;
+  const prevIndex     = (currentIndex - 1 + devices.length) % devices.length;
+  const nextIndex     = (currentIndex + 1) % devices.length;
   const isMultiDevice = devices.length > 1;
 
   const slideToDevice = (nextDevice: Device, direction: 'left' | 'right') => {
     if (sliding) return;
     setSliding(true);
-    // Başlangıç pozisyonu — yeni kart dışarıdan gelir
     const outDir = direction === 'right' ? SCREEN_W : -SCREEN_W;
     slideAnim.setValue(0);
-    Animated.sequence([
-      // Mevcut kart dışarı çıkar
-      Animated.timing(slideAnim, {
-        toValue: direction === 'right' ? -SCREEN_W : SCREEN_W,
-        duration: 280,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: true,
-      }),
-    ]).start(() => {
+    Animated.timing(slideAnim, {
+      toValue: direction === 'right' ? -SCREEN_W : SCREEN_W,
+      duration: 280, easing: Easing.out(Easing.cubic), useNativeDriver: true,
+    }).start(() => {
       onDeviceChange(nextDevice);
       slideAnim.setValue(outDir);
-      // Yeni kart içeri girer
       Animated.timing(slideAnim, {
-        toValue: 0,
-        duration: 280,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: true,
+        toValue: 0, duration: 280, easing: Easing.out(Easing.cubic), useNativeDriver: true,
       }).start(() => setSliding(false));
     });
   };
 
-  // Her kanal için bağımsız state
   const safeChannels = device.channels ?? [{ id: 0, name: 'Şerit', capabilities: device.capabilities ?? ['on_off','brightness','color','effects'], leds: device.leds }];
   const [viewerWidth, setViewerWidth] = useState(CARD_W);
   const viewerHeight = Math.round(viewerWidth * 1.1);
@@ -665,23 +624,20 @@ export default function ControlScreen({ device, devices, onOpenList, onAddDevice
     syncAllChannels();
   }, [device.id]);
 
-  // Arkaplan hafif renk değişimi
   useEffect(() => {
     const anyOn = channelStates.some((s) => s.isOn);
     Animated.timing(bgAnim, { toValue: anyOn?1:0, duration: 500, easing: Easing.out(Easing.cubic), useNativeDriver: false }).start();
   }, [channelStates]);
 
   const syncAllChannels = async () => {
-    // /whoami — parts ve partMaterials güncel mi kontrol et
     try {
       const whoamiRes = await fetch(`http://${device.ip}/whoami`);
       if (whoamiRes.ok) {
         const data = await whoamiRes.json();
-        const parts: string[]    = Array.isArray(data.parts) ? data.parts : device.parts ?? [];
+        const parts: string[] = Array.isArray(data.parts) ? data.parts : device.parts ?? [];
         const partColors:    Record<string, string> = data.partColors    ?? {};
         const partRoughness: Record<string, number> = data.partRoughness ?? {};
         const partMetalness: Record<string, number> = data.partMetalness ?? {};
-
         const partMaterials: Record<string, any> = {};
         parts.forEach((key: string) => {
           partMaterials[key] = {
@@ -690,22 +646,10 @@ export default function ControlScreen({ device, devices, onOpenList, onAddDevice
             metalness: partMetalness[key] ?? 0.1,
           };
         });
-
-        // AsyncStorage'ı güncelle
         await saveDeviceMeta(device.id, parts, partMaterials, data.channels);
-
-        // Eğer parts değiştiyse log
-        const oldParts = (device.parts ?? []).join(',');
-        const newParts = parts.join(',');
-        if (oldParts !== newParts) {
-          console.log(`📦 Parts güncellendi: ${oldParts} → ${newParts}`);
-        }
       }
-    } catch (e) {
-      console.log('whoami sync atlandı:', e);
-    }
+    } catch {}
 
-    // LED state sync
     for (let i = 0; i < safeChannels.length; i++) {
       const res = await api.get('/led/state', undefined, i);
       if (res.ok) {
@@ -716,7 +660,7 @@ export default function ControlScreen({ device, devices, onOpenList, onAddDevice
             isOn:         data.on ?? false,
             brightness:   Math.round((data.brightness ?? 255) / 255 * 100),
             color:        { r: data.r ?? 255, g: data.g ?? 255, b: data.b ?? 255 },
-            activeEffect: data.effect === 'off' ? null : data.effect,
+            activeEffect: data.effect === 'off' ? null : (data.effect ?? null),
           };
           return next;
         });
@@ -764,7 +708,6 @@ export default function ControlScreen({ device, devices, onOpenList, onAddDevice
           error={pinError} isLoading={pinLoading} />
       )}
 
-      {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={onOpenList} style={styles.deviceNameBtn}>
           <Text style={styles.deviceNameLabel}>AKTİF CİHAZ</Text>
@@ -790,174 +733,105 @@ export default function ControlScreen({ device, devices, onOpenList, onAddDevice
         </Text>
       </View>
 
-      {/* Kanal listesi */}
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
-        onScroll={(e) => {}} scrollEventThrottle={16}
+        scrollEventThrottle={16}
       >
-        {/* ── Model Kartı — slide animasyonlu ── */}
+        {/* Model Kartı */}
         <View style={styles.modelCardOuter}>
-
-          {/* Sol ok — önceki cihaz */}
           {isMultiDevice && (
-            <TouchableOpacity
-              onPress={() => hasPrev && slideToDevice(devices[currentIndex - 1], 'left')}
-              style={[styles.slideBtn, !hasPrev && styles.slideBtnDisabled]}
-              activeOpacity={0.7}
-            >
-              <Text style={[styles.slideBtnText, !hasPrev && styles.slideBtnTextDisabled]}>‹</Text>
+            <TouchableOpacity onPress={() => slideToDevice(devices[prevIndex], 'left')} style={styles.slideBtn} activeOpacity={0.7}>
+              <Text style={styles.slideBtnText}>‹</Text>
             </TouchableOpacity>
           )}
 
-          {/* Animasyonlu kart */}
-          <Animated.View style={[
-            styles.modelCard,
-            { transform: [{ translateX: slideAnim }] },
-          ]}>
-
-            {/* 3D Model — tıklanabilir, döndürülebilir */}
+          <Animated.View style={[styles.modelCard, { transform: [{ translateX: slideAnim }] }]}>
             <TouchableOpacity
               onPress={() => {
-              // Tek kanallı: direkt toggle
-              // Çok kanallı: tüm kanalları toggle
-              if (!isMultiChannel) {
-                const anyOn = channelStates.some((s) => s.isOn);
-                safeChannels.forEach((_, i) => {
-                  const api_i = createAPI(device.ip, currentPin, () => {
-                    setPinScreenMode('enter'); setShowPinScreen(true);
+                if (connStatus !== 'online') return;
+                if (!isMultiChannel) {
+                  const anyOn = channelStates.some((s) => s.isOn);
+                  safeChannels.forEach((_, i) => {
+                    const api_i = createAPI(device.ip, currentPin, () => { setPinScreenMode('enter'); setShowPinScreen(true); });
+                    api_i.get(anyOn ? '/led/off' : '/led/on', undefined, i);
+                    updateChannelState(i, { isOn: !anyOn, activeEffect: null });
                   });
-                  api_i.get(anyOn ? '/led/off' : '/led/on', undefined, i);
-                  updateChannelState(i, { isOn: !anyOn });
-                });
-              }
-            }}
-            activeOpacity={0.9}
-            style={styles.modelViewerWrap}
-            onLayout={(e) => setViewerWidth(e.nativeEvent.layout.width)}
-          >
-            <Model3DViewer
-              parts={device.parts ?? []}
-              partMaterials={device.partMaterials ?? {}}
-              isOn={channelStates.some((s) => s.isOn)}
-              lightColor={
-                channelStates.find((s) => s.isOn)?.color ?? { r: 255, g: 255, b: 255 }
-              }
-              width={viewerWidth}
-              height={viewerHeight}
-            />
+                }
+              }}
+              activeOpacity={0.9}
+              style={styles.modelViewerWrap}
+              onLayout={(e) => setViewerWidth(e.nativeEvent.layout.width)}
+            >
+              <Model3DViewer
+                parts={device.parts ?? []}
+                partMaterials={device.partMaterials ?? {}}
+                isOn={channelStates.some((s) => s.isOn)}
+                lightColor={channelStates.find((s) => s.isOn)?.color ?? { r: 255, g: 255, b: 255 }}
+                width={viewerWidth}
+                height={viewerHeight}
+              />
+              <View style={styles.modelStatusBadge} pointerEvents="none">
+                <View style={[styles.modelStatusDot, {
+                  backgroundColor: channelStates.some((s) => s.isOn)
+                    ? `rgb(${channelStates.find((s)=>s.isOn)?.color.r??255},${channelStates.find((s)=>s.isOn)?.color.g??255},${channelStates.find((s)=>s.isOn)?.color.b??255})`
+                    : Colors.border2,
+                }]} />
+                <Text style={[styles.modelStatusText, { color: channelStates.some((s) => s.isOn) ? Colors.cyan : Colors.text3 }]}>
+                  {channelStates.some((s) => s.isOn) ? 'AÇIK' : 'KAPALI'}
+                </Text>
+              </View>
+              <View style={styles.modelHint} pointerEvents="none">
+                <Text style={styles.modelHintText}>
+                  {isMultiChannel ? 'sürükle · döndür' : 'bas · aç/kapat  ·  sürükle · döndür'}
+                </Text>
+              </View>
+            </TouchableOpacity>
 
-            {/* Sağ üst — durum badge */}
-            <View style={styles.modelStatusBadge} pointerEvents="none">
-              <View style={[styles.modelStatusDot, {
-                backgroundColor: channelStates.some((s) => s.isOn)
-                  ? `rgb(${(channelStates.find((s)=>s.isOn)?.color.r??255)},${(channelStates.find((s)=>s.isOn)?.color.g??255)},${(channelStates.find((s)=>s.isOn)?.color.b??255)})`
-                  : Colors.border2,
-              }]} />
-              <Text style={[styles.modelStatusText, {
-                color: channelStates.some((s) => s.isOn) ? Colors.cyan : Colors.text3,
-              }]}>
-                {channelStates.some((s) => s.isOn) ? 'AÇIK' : 'KAPALI'}
-              </Text>
-            </View>
+            <View style={styles.modelDivider} />
 
-            {/* Alt ipucu */}
-            <View style={styles.modelHint} pointerEvents="none">
-              <Text style={styles.modelHintText}>
-                {isMultiChannel ? 'sürükle · döndür' : 'bas · aç/kapat  ·  sürükle · döndür'}
-              </Text>
-            </View>
-          </TouchableOpacity>
-
-          {/* ── Kanal butonları — ince çizgi ile ayrılmış ── */}
-          <View style={styles.modelDivider} />
-
-          <View style={[
-            styles.channelButtonsRow,
-            isMultiChannel && styles.channelButtonsRowMulti,
-          ]}>
-            {safeChannels.map((channel, index) => {
-              const s        = channelStates[index];
-              const colorRgb = `rgb(${s.color.r},${s.color.g},${s.color.b})`;
-              const isOn     = s.isOn;
-
-              return (
-                <TouchableOpacity
-                  key={channel.id}
-                  onPress={async () => {
-                    const res = await api.get(isOn ? '/led/off' : '/led/on', undefined, index);
-                    if (res.ok) updateChannelState(index, { isOn: !isOn, activeEffect: isOn ? null : s.activeEffect });
-                  }}
-                  activeOpacity={0.75}
-                  style={[
-                    styles.channelPowerBtn,
-                    isMultiChannel && styles.channelPowerBtnMulti,
-                    isOn && { borderColor: colorRgb },
-                  ]}
-                >
-                  {/* Power ikonı */}
-                  <View style={[styles.powerIcon, isOn && {
-                    borderColor: colorRgb,
-                    shadowColor: colorRgb,
-                    shadowOpacity: 0.8,
-                    shadowRadius: 8,
-                    shadowOffset: { width: 0, height: 0 },
-                  }]}>
-                    <View style={[styles.powerDot, {
-                      backgroundColor: isOn ? colorRgb : Colors.border2,
-                      shadowColor: isOn ? colorRgb : 'transparent',
-                      shadowOpacity: isOn ? 1 : 0,
-                      shadowRadius: 4,
-                      shadowOffset: { width: 0, height: 0 },
-                    }]} />
-                  </View>
-
-                  {/* Kanal adı + durum */}
-                  <View style={styles.powerBtnText}>
-                    {isMultiChannel && (
-                      <Text style={[styles.powerBtnChannel, isOn && { color: colorRgb }]}>
-                        {channel.name.toUpperCase()}
+            <View style={[styles.channelButtonsRow, isMultiChannel && styles.channelButtonsRowMulti]}>
+              {safeChannels.map((channel, index) => {
+                const s        = channelStates[index];
+                const colorRgb = `rgb(${s.color.r},${s.color.g},${s.color.b})`;
+                const isOn     = s.isOn;
+                return (
+                  <TouchableOpacity
+                    key={channel.id}
+                    onPress={async () => {
+                      if (connStatus !== 'online') return;
+                      const res = await api.get(isOn ? '/led/off' : '/led/on', undefined, index);
+                      if (res.ok) updateChannelState(index, { isOn: !isOn, activeEffect: null });
+                    }}
+                    activeOpacity={0.75}
+                    style={[styles.channelPowerBtn, isMultiChannel && styles.channelPowerBtnMulti, isOn && { borderColor: colorRgb }]}
+                  >
+                    <View style={[styles.powerIcon, isOn && { borderColor: colorRgb, shadowColor: colorRgb, shadowOpacity: 0.8, shadowRadius: 8, shadowOffset: { width: 0, height: 0 } }]}>
+                      <View style={[styles.powerDot, { backgroundColor: isOn ? colorRgb : Colors.border2, shadowColor: isOn ? colorRgb : 'transparent', shadowOpacity: isOn ? 1 : 0, shadowRadius: 4, shadowOffset: { width: 0, height: 0 } }]} />
+                    </View>
+                    <View style={styles.powerBtnText}>
+                      {isMultiChannel && <Text style={[styles.powerBtnChannel, isOn && { color: colorRgb }]}>{channel.name.toUpperCase()}</Text>}
+                      <Text style={[styles.powerBtnState, isOn && { color: colorRgb }]}>
+                        {isOn ? (s.activeEffect ? s.activeEffect.toUpperCase() : 'AÇIK') : 'KAPALI'}
                       </Text>
-                    )}
-                    <Text style={[styles.powerBtnState, isOn && { color: colorRgb }]}>
-                      {isOn
-                        ? s.activeEffect ? s.activeEffect.toUpperCase() : 'AÇIK'
-                        : 'KAPALI'}
-                    </Text>
-                  </View>
-
-                  {/* Sağda renk dot */}
-                  {isOn && (
-                    <View style={[styles.powerBtnColorDot, {
-                      backgroundColor: colorRgb,
-                      shadowColor: colorRgb,
-                      shadowOpacity: 0.8,
-                      shadowRadius: 6,
-                      shadowOffset: { width: 0, height: 0 },
-                    }]} />
-                  )}
-                </TouchableOpacity>
-              );
-            })}
-          </View>
+                    </View>
+                    {isOn && <View style={[styles.powerBtnColorDot, { backgroundColor: colorRgb, shadowColor: colorRgb, shadowOpacity: 0.8, shadowRadius: 6, shadowOffset: { width: 0, height: 0 } }]} />}
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
           </Animated.View>
 
-          {/* Sağ ok — sonraki cihaz */}
           {isMultiDevice && (
-            <TouchableOpacity
-              onPress={() => hasNext && slideToDevice(devices[currentIndex + 1], 'right')}
-              style={[styles.slideBtn, !hasNext && styles.slideBtnDisabled]}
-              activeOpacity={0.7}
-            >
-              <Text style={[styles.slideBtnText, !hasNext && styles.slideBtnTextDisabled]}>›</Text>
+            <TouchableOpacity onPress={() => slideToDevice(devices[nextIndex], 'right')} style={styles.slideBtn} activeOpacity={0.7}>
+              <Text style={styles.slideBtnText}>›</Text>
             </TouchableOpacity>
           )}
-
         </View>
 
-        {/* ── Kanal kontrolleri (parlaklık, renk, sahneler, otomasyon) ── */}
+        {/* Kanal kontrolleri */}
         {safeChannels.map((channel, index) => (
           <View key={channel.id}>
             {isMultiChannel && (
@@ -976,6 +850,7 @@ export default function ControlScreen({ device, devices, onOpenList, onAddDevice
               presets={presets}
               onPresetsReload={loadPresets}
               pin={currentPin}
+              connStatus={connStatus}
             />
           </View>
         ))}
@@ -990,7 +865,6 @@ export default function ControlScreen({ device, devices, onOpenList, onAddDevice
   );
 }
 
-// ── Styles ────────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
   root: { flex: 1, paddingTop: 56 },
   scanlines: { ...StyleSheet.absoluteFillObject, justifyContent: 'space-around', opacity: 0.025 },
@@ -1016,213 +890,44 @@ const styles = StyleSheet.create({
   channelHeader: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md, marginVertical: Spacing.lg },
   channelHeaderLine: { flex: 1, height: StyleSheet.hairlineWidth, backgroundColor: Colors.cyan2 },
   channelHeaderText: { fontFamily: Fonts.mono, fontSize: 9, letterSpacing: 4, color: Colors.cyan },
-
-  // ── Model kartı ──────────────────────────────────────────────────────────
-  modelCardOuter: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: SLIDE_GAP,
-    marginBottom: Spacing.md,
-  },
-  modelCard: {
-    width: CARD_W,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    borderRadius: Radius.md,
-    backgroundColor: Colors.bg3,
-    overflow: 'hidden',
-  },
-  // Slide ok butonları
-  slideBtn: {
-    width: SLIDE_BTN_W,
-    height: 64,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: Colors.border2,
-    borderRadius: Radius.sm,
-    backgroundColor: Colors.bg3,
-    flexShrink: 0,
-  },
-  slideBtnDisabled: {
-    borderColor: Colors.border3,
-    backgroundColor: 'transparent',
-  },
-  slideBtnText: {
-    fontFamily: Fonts.mono,
-    fontSize: 22,
-    color: Colors.cyan,
-    lineHeight: 28,
-  },
-  slideBtnTextDisabled: {
-    color: Colors.border2,
-  },
-  modelViewerWrap: {
-    position: 'relative',
-  },
-  modelStatusBadge: {
-    position: 'absolute',
-    top: Spacing.md,
-    left: Spacing.md,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.xs,
-    backgroundColor: 'rgba(7,11,20,0.75)',
-    paddingHorizontal: Spacing.sm,
-    paddingVertical: 4,
-    borderRadius: Radius.sm,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: Colors.border,
-  },
-  modelStatusDot: {
-    width: 5,
-    height: 5,
-    borderRadius: 3,
-  },
-  modelStatusText: {
-    fontFamily: Fonts.mono,
-    fontSize: 8,
-    letterSpacing: 3,
-  },
-  modelHint: {
-    position: 'absolute',
-    bottom: Spacing.sm,
-    left: 0,
-    right: 0,
-    alignItems: 'center',
-  },
-  modelHintText: {
-    fontFamily: Fonts.mono,
-    fontSize: 8,
-    letterSpacing: 1,
-    color: Colors.border2,
-  },
-  modelDivider: {
-    height: StyleSheet.hairlineWidth,
-    backgroundColor: Colors.border,
-  },
-
-  // ── Kanal butonları ───────────────────────────────────────────────────────
-  channelButtonsRow: {
-    flexDirection: 'row',
-  },
-  channelButtonsRowMulti: {
-    // Çok kanallı: her buton eşit genişlik
-  },
-  channelPowerBtn: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.md,
-    paddingHorizontal: Spacing.lg,
-    paddingVertical: Spacing.md,
-    borderBottomWidth: 2,
-    borderBottomColor: 'transparent',
-  },
-  channelPowerBtnMulti: {
-    borderRightWidth: StyleSheet.hairlineWidth,
-    borderRightColor: Colors.border,
-  },
-  // Power icon — halka + merkez dot
-  powerIcon: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    borderWidth: 1.5,
-    borderColor: Colors.border2,
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexShrink: 0,
-  },
-  powerDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-  },
-  powerBtnText: {
-    flex: 1,
-    gap: 2,
-  },
-  powerBtnChannel: {
-    fontFamily: Fonts.mono,
-    fontSize: 8,
-    letterSpacing: 3,
-    color: Colors.text3,
-  },
-  powerBtnState: {
-    fontFamily: Fonts.mono,
-    fontSize: 12,
-    letterSpacing: 2,
-    color: Colors.text2,
-  },
-  powerBtnColorDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    flexShrink: 0,
-  },
+  modelCardOuter: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: SLIDE_GAP, marginBottom: Spacing.md },
+  modelCard: { width: CARD_W, borderWidth: 1, borderColor: Colors.border, borderRadius: Radius.md, backgroundColor: Colors.bg3, overflow: 'hidden' },
+  slideBtn: { width: SLIDE_BTN_W, height: 64, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: Colors.border2, borderRadius: Radius.sm, backgroundColor: Colors.bg3, flexShrink: 0 },
+  slideBtnText: { fontFamily: Fonts.mono, fontSize: 22, color: Colors.cyan, lineHeight: 28 },
+  modelViewerWrap: { position: 'relative' },
+  modelStatusBadge: { position: 'absolute', top: Spacing.md, left: Spacing.md, flexDirection: 'row', alignItems: 'center', gap: Spacing.xs, backgroundColor: 'rgba(7,11,20,0.75)', paddingHorizontal: Spacing.sm, paddingVertical: 4, borderRadius: Radius.sm, borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.border },
+  modelStatusDot: { width: 5, height: 5, borderRadius: 3 },
+  modelStatusText: { fontFamily: Fonts.mono, fontSize: 8, letterSpacing: 3 },
+  modelHint: { position: 'absolute', bottom: Spacing.sm, left: 0, right: 0, alignItems: 'center' },
+  modelHintText: { fontFamily: Fonts.mono, fontSize: 8, letterSpacing: 1, color: Colors.border2 },
+  modelDivider: { height: StyleSheet.hairlineWidth, backgroundColor: Colors.border },
+  channelButtonsRow: { flexDirection: 'row' },
+  channelButtonsRowMulti: {},
+  channelPowerBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: Spacing.md, paddingHorizontal: Spacing.lg, paddingVertical: Spacing.md, borderBottomWidth: 2, borderBottomColor: 'transparent' },
+  channelPowerBtnMulti: { borderRightWidth: StyleSheet.hairlineWidth, borderRightColor: Colors.border },
+  powerIcon: { width: 32, height: 32, borderRadius: 16, borderWidth: 1.5, borderColor: Colors.border2, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
+  powerDot: { width: 10, height: 10, borderRadius: 5 },
+  powerBtnText: { flex: 1, gap: 2 },
+  powerBtnChannel: { fontFamily: Fonts.mono, fontSize: 8, letterSpacing: 3, color: Colors.text3 },
+  powerBtnState: { fontFamily: Fonts.mono, fontSize: 12, letterSpacing: 2, color: Colors.text2 },
+  powerBtnColorDot: { width: 8, height: 8, borderRadius: 4, flexShrink: 0 },
   footer: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: Colors.border3, paddingTop: Spacing.md, paddingBottom: Spacing.xl, paddingHorizontal: Spacing.xl, justifyContent: 'center' },
   footerText: { fontFamily: Fonts.mono, fontSize: 9, letterSpacing: 2.5, color: Colors.text3 },
   footerSep: { width: 3, height: 3, borderRadius: 2, backgroundColor: Colors.border2 },
 });
 
-// ── ChannelControl styles ─────────────────────────────────────────────────────
 const cs = StyleSheet.create({
   channelWrap: { gap: Spacing.md, marginBottom: Spacing.md },
   errorBanner: { marginBottom: Spacing.sm, paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm, backgroundColor: Colors.redAlpha, borderWidth: 1, borderColor: Colors.red, borderRadius: Radius.sm },
   errorBannerText: { fontFamily: Fonts.mono, fontSize: 11, letterSpacing: 1, color: Colors.red },
-  // Model 3D
-  modelWrap: {
-    borderWidth: 1,
-    borderColor: Colors.border,
-    borderRadius: Radius.md,
-    overflow: 'hidden',
-    position: 'relative',
-  },
-  modelStateRow: {
-    position: 'absolute',
-    top: Spacing.md,
-    left: Spacing.md,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.sm,
-    backgroundColor: 'rgba(7,11,20,0.7)',
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.xs,
-    borderRadius: Radius.sm,
-    borderWidth: 1,
-    borderColor: Colors.border,
-  },
-  modelStateDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    elevation: 2,
-  },
-  modelStateText: {
-    fontFamily: Fonts.mono,
-    fontSize: 9,
-    letterSpacing: 3,
-  },
-  modelTapHint: {
-    position: 'absolute',
-    bottom: Spacing.sm,
-    alignSelf: 'center',
-    left: 0,
-    right: 0,
-    alignItems: 'center',
-  },
-  modelTapHintText: {
-    fontFamily: Fonts.mono,
-    fontSize: 8,
-    letterSpacing: 1,
-    color: Colors.border2,
-  },
-  // Progress bar
+  modelWrap: { borderWidth: 1, borderColor: Colors.border, borderRadius: Radius.md, overflow: 'hidden', position: 'relative' },
+  modelStateRow: { position: 'absolute', top: Spacing.md, left: Spacing.md, flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, backgroundColor: 'rgba(7,11,20,0.7)', paddingHorizontal: Spacing.md, paddingVertical: Spacing.xs, borderRadius: Radius.sm, borderWidth: 1, borderColor: Colors.border },
+  modelStateDot: { width: 6, height: 6, borderRadius: 3, elevation: 2 },
+  modelStateText: { fontFamily: Fonts.mono, fontSize: 9, letterSpacing: 3 },
+  modelTapHint: { position: 'absolute', bottom: Spacing.sm, alignSelf: 'center', left: 0, right: 0, alignItems: 'center' },
+  modelTapHintText: { fontFamily: Fonts.mono, fontSize: 8, letterSpacing: 1, color: Colors.border2 },
   progressTrack: { height: 1, backgroundColor: Colors.border, overflow: 'hidden' },
   progressFill: { height: '100%', shadowOffset: { width: 0, height: 0 }, shadowOpacity: 1, shadowRadius: 4, elevation: 2 },
-  // Slider
   sliderSection: { gap: 4 },
   sliderHeader: { flexDirection: 'row', justifyContent: 'space-between' },
   sliderLabel: { fontFamily: Fonts.mono, fontSize: 9, letterSpacing: 3, color: Colors.text3 },
@@ -1230,7 +935,6 @@ const cs = StyleSheet.create({
   slider: { width: '100%', height: 28, marginVertical: 2 },
   sliderTicks: { flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 4 },
   sliderTick: { fontFamily: Fonts.mono, fontSize: 8, letterSpacing: 1, color: Colors.text3 },
-  // Accordion
   accordion: { borderWidth: 1, borderColor: Colors.border, borderRadius: Radius.md, backgroundColor: Colors.bg3, overflow: 'hidden' },
   accordionHeader: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: Spacing.lg, paddingVertical: Spacing.md, gap: Spacing.md },
   accordionLeft: { flex: 1, gap: 2 },
@@ -1240,11 +944,9 @@ const cs = StyleSheet.create({
   chevronOpen: { transform: [{ rotate: '90deg' }] },
   accordionPanel: { paddingHorizontal: Spacing.lg, paddingBottom: Spacing.lg },
   accordionDivider: { height: StyleSheet.hairlineWidth, backgroundColor: Colors.border, marginBottom: Spacing.lg },
-  // Renk
   colorPreview: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
   colorDot: { width: 22, height: 22, borderRadius: 11, borderWidth: 1, borderColor: Colors.border2, shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.7, shadowRadius: 6, elevation: 3 },
   colorHex: { fontFamily: Fonts.mono, fontSize: 12, letterSpacing: 2, color: Colors.text2 },
-  // Sahneler
   fxBadge: { paddingHorizontal: 5, paddingVertical: 2, borderRadius: Radius.sm, borderWidth: 1, borderColor: Colors.purple, backgroundColor: Colors.purpleAlpha },
   fxBadgeText: { fontFamily: Fonts.mono, fontSize: 8, letterSpacing: 2, color: Colors.purple },
   presetSectionLabel: { fontFamily: Fonts.mono, fontSize: 8, letterSpacing: 3, color: Colors.text3, marginBottom: Spacing.sm },
@@ -1272,7 +974,6 @@ const cs = StyleSheet.create({
   rgbVal: { fontFamily: Fonts.mono, fontSize: 10, color: Colors.text2, width: 28, textAlign: 'right' },
   applyBtn: { height: 40, borderWidth: 1, borderColor: Colors.cyan2, borderRadius: Radius.sm, backgroundColor: Colors.cyanAlpha, alignItems: 'center', justifyContent: 'center', marginTop: Spacing.sm },
   applyBtnText: { fontFamily: Fonts.mono, fontSize: 11, letterSpacing: 2, color: Colors.cyan },
-  // Otomasyon
   esp32Time: { fontFamily: Fonts.mono, fontSize: 10, letterSpacing: 1, color: Colors.text3 },
   automationEmpty: { fontFamily: Fonts.mono, fontSize: 11, letterSpacing: 1, color: Colors.text3, textAlign: 'center', paddingVertical: Spacing.md },
   ruleRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, paddingVertical: Spacing.sm, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: Colors.border3 },
@@ -1285,7 +986,6 @@ const cs = StyleSheet.create({
   addRuleRow: { flexDirection: 'row', gap: Spacing.sm, marginTop: Spacing.md },
   addRuleBtn: { flex: 1, height: 38, borderWidth: 1, borderColor: Colors.border, borderRadius: Radius.sm, backgroundColor: Colors.bg4, alignItems: 'center', justifyContent: 'center' },
   addRuleBtnText: { fontFamily: Fonts.mono, fontSize: 10, letterSpacing: 2, color: Colors.text2 },
-  // Modal
   modalOverlay: { flex: 1, justifyContent: 'flex-end' },
   modalBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.6)' },
   modalCard: { backgroundColor: Colors.bg2, borderTopWidth: 1, borderTopColor: Colors.border, borderTopLeftRadius: Radius.md*2, borderTopRightRadius: Radius.md*2, padding: Spacing.xl, gap: Spacing.lg, paddingBottom: Spacing.xl+20 },
@@ -1295,7 +995,7 @@ const cs = StyleSheet.create({
   actionRow: { flexDirection: 'row', gap: Spacing.md },
   actionChoice: { flex: 1, height: 40, borderRadius: Radius.sm, borderWidth: 1, borderColor: Colors.border, backgroundColor: Colors.bg4, alignItems: 'center', justifyContent: 'center' },
   actionChoiceOn:  { borderColor: Colors.cyan2, backgroundColor: Colors.cyanAlpha },
-  actionChoiceOff: { borderColor: Colors.red,   backgroundColor: Colors.redAlpha },
+  actionChoiceOff: { borderColor: Colors.red, backgroundColor: Colors.redAlpha },
   actionChoiceText: { fontFamily: Fonts.mono, fontSize: 12, letterSpacing: 2, color: Colors.text2 },
   ruleFormButtons: { flexDirection: 'row', gap: Spacing.sm },
   saveRuleBtn: { flex: 1, height: 42, borderWidth: 1, borderColor: Colors.cyan2, borderRadius: Radius.sm, backgroundColor: Colors.cyanAlpha, alignItems: 'center', justifyContent: 'center' },
