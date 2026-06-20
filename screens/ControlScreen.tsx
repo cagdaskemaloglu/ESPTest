@@ -27,8 +27,15 @@ import PinScreen from '../components/PinScreen';
 import { useConnectionStatus } from '../hooks/useConnectionStatus';
 import { createAPI } from '../services/apiService';
 import {
-  AutomationRule, addCountdownRule, addDailyRule,
-  deleteRule, getESP32Time, listRules, ruleDescription, toggleRule,
+  AutomationRule,
+  FadeState,
+  addCountdownRule, addDailyRule,
+  cancelFade,
+  deleteRule, getESP32Time,
+  getFadeState,
+  listRules, ruleDescription,
+  startFade,
+  toggleRule,
 } from '../services/automationService';
 import { saveBrightness, saveColor, saveDeviceMeta, savePin } from '../services/deviceStorage';
 import { requestNotificationPermission } from '../services/notificationService';
@@ -174,7 +181,7 @@ function ChannelControl({
   const [rules,       setRules]       = useState<LocalRule[]>([]);
   const [rulesLoading,setRulesLoading]= useState(false);
   const [esp32Time,   setEsp32Time]   = useState<string | null>(null);
-  const [formMode,    setFormMode]    = useState<'none'|'daily'|'countdown'>('none');
+  const [formMode,    setFormMode]    = useState<'none'|'daily'|'countdown'|'sleep'>('none');
   const [savingRule,  setSavingRule]  = useState(false);
   const [dailyHour,   setDailyHour]   = useState(22);
   const [dailyMinute, setDailyMinute] = useState(0);
@@ -182,6 +189,11 @@ function ChannelControl({
   const [cdHour,      setCdHour]      = useState(0);
   const [cdMinute,    setCdMinute]    = useState(30);
   const [cdAction,    setCdAction]    = useState<0|1>(0);
+  // Uyku modu
+  const [sleepMinutes,  setSleepMinutes]  = useState(30);
+  const [fadeState,     setFadeState]     = useState<FadeState | null>(null);
+  const [startingFade,  setStartingFade]  = useState(false);
+  const fadeTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const debounceRef = useRef<ReturnType<typeof setTimeout>|null>(null);
   const errorTimer  = useRef<ReturnType<typeof setTimeout>|null>(null);
@@ -199,7 +211,28 @@ function ChannelControl({
   // Cihaz değişince activePresetId sıfırla
   useEffect(() => {
     setActivePresetId(null);
+    setFadeState(null);
+    if (fadeTimerRef.current) clearInterval(fadeTimerRef.current);
   }, [device.id]);
+
+  // Fade aktifken periyodik durum sorgusu
+  useEffect(() => {
+    if (fadeState?.active) {
+      fadeTimerRef.current = setInterval(async () => {
+        const s = await getFadeState(device.ip, pin);
+        if (s) {
+          setFadeState(s);
+          if (!s.active) {
+            clearInterval(fadeTimerRef.current!);
+            onStateChange({ isOn: false, activeEffect: null });
+          }
+        }
+      }, 2000);
+    } else {
+      if (fadeTimerRef.current) clearInterval(fadeTimerRef.current);
+    }
+    return () => { if (fadeTimerRef.current) clearInterval(fadeTimerRef.current); };
+  }, [fadeState?.active]);
 
   useEffect(() => {
     if (autoOpen) {
@@ -291,6 +324,25 @@ function ChannelControl({
         if (activePresetId === preset.id) setActivePresetId(null);
       }},
     ]);
+  };
+
+  const handleStartFade = async () => {
+    if (sleepMinutes <= 0) { showError('En az 1 dakika gir'); return; }
+    setStartingFade(true);
+    const ok = await startFade(device.ip, pin, sleepMinutes * 60);
+    setStartingFade(false);
+    if (ok) {
+      setFadeState({ active: true, remaining: sleepMinutes * 60, progress: 0 });
+      setFormMode('none');
+    } else {
+      showError('Uyku modu başlatılamadı');
+    }
+  };
+
+  const handleCancelFade = async () => {
+    await cancelFade(device.ip, pin);
+    setFadeState(null);
+    if (fadeTimerRef.current) clearInterval(fadeTimerRef.current);
   };
 
   const handleAddDaily = async () => {
@@ -517,6 +569,39 @@ function ChannelControl({
                 <TouchableOpacity onPress={()=>setFormMode('countdown')} activeOpacity={0.75} style={cs.addRuleBtn}><Text style={cs.addRuleBtnText}>+ Geri Sayım</Text></TouchableOpacity>
               </View>
             )}
+
+            {/* Uyku Modu butonu */}
+            {formMode==='none' && (
+              <View style={{ marginTop: Spacing.sm }}>
+                {fadeState?.active ? (
+                  /* Aktif fade göstergesi */
+                  <View style={cs.fadeActiveCard}>
+                    <View style={cs.fadeActiveHeader}>
+                      <Text style={cs.fadeActiveTitle}>🌙 UYKU MODU AKTİF</Text>
+                      <TouchableOpacity onPress={handleCancelFade} style={cs.fadeCancelBtn}>
+                        <Text style={cs.fadeCancelText}>İPTAL</Text>
+                      </TouchableOpacity>
+                    </View>
+                    <View style={cs.fadeProgressTrack}>
+                      <View style={[cs.fadeProgressFill, { width: `${fadeState.progress ?? 0}%` }]} />
+                    </View>
+                    <Text style={cs.fadeRemaining}>
+                      {fadeState.remaining !== undefined
+                        ? `${Math.floor(fadeState.remaining / 60)} dk ${fadeState.remaining % 60} sn kaldı`
+                        : 'Hesaplanıyor...'}
+                    </Text>
+                  </View>
+                ) : (
+                  <TouchableOpacity
+                    onPress={() => setFormMode('sleep')}
+                    activeOpacity={0.75}
+                    style={[cs.addRuleBtn, { borderColor: Colors.purple }]}
+                  >
+                    <Text style={[cs.addRuleBtnText, { color: Colors.purple }]}>🌙 Uyku Modu</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            )}
           </View>
         )}
       </View>
@@ -525,32 +610,67 @@ function ChannelControl({
         <KeyboardAvoidingView style={cs.modalOverlay} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
           <TouchableOpacity style={cs.modalBackdrop} onPress={()=>setFormMode('none')} activeOpacity={1} />
           <View style={cs.modalCard}>
-            <Text style={cs.ruleFormTitle}>{formMode==='daily'?'// GÜNLİK ZAMANLAYICI':'// GERİ SAYIM'}</Text>
-            <View style={cs.timePickerRow}>
-              <NumberPicker label="SAAT" value={formMode==='daily'?dailyHour:cdHour} min={0} max={23} onChange={formMode==='daily'?setDailyHour:setCdHour} />
-              <Text style={cs.timeSep}>:</Text>
-              <NumberPicker label="DAKİKA" value={formMode==='daily'?dailyMinute:cdMinute} min={0} max={59} onChange={formMode==='daily'?setDailyMinute:setCdMinute} />
-            </View>
-            <View style={cs.actionRow}>
-              <TouchableOpacity onPress={()=>formMode==='daily'?setDailyAction(1):setCdAction(1)} activeOpacity={0.75}
-                style={[cs.actionChoice,(formMode==='daily'?dailyAction:cdAction)===1&&cs.actionChoiceOn]}>
-                <Text style={[cs.actionChoiceText,(formMode==='daily'?dailyAction:cdAction)===1&&{color:Colors.cyan}]}>AÇ</Text>
-              </TouchableOpacity>
-              <TouchableOpacity onPress={()=>formMode==='daily'?setDailyAction(0):setCdAction(0)} activeOpacity={0.75}
-                style={[cs.actionChoice,(formMode==='daily'?dailyAction:cdAction)===0&&cs.actionChoiceOff]}>
-                <Text style={[cs.actionChoiceText,(formMode==='daily'?dailyAction:cdAction)===0&&{color:Colors.red}]}>KAPAT</Text>
-              </TouchableOpacity>
-            </View>
-            <View style={cs.ruleFormButtons}>
-              <TouchableOpacity onPress={formMode==='daily'?handleAddDaily:handleAddCountdown}
-                disabled={savingRule||(formMode==='countdown'&&cdHour===0&&cdMinute===0)} activeOpacity={0.75}
-                style={[cs.saveRuleBtn,(savingRule||(formMode==='countdown'&&cdHour===0&&cdMinute===0))&&{opacity:0.5}]}>
-                <Text style={cs.saveRuleBtnText}>{savingRule?'KAYDEDİLİYOR...':'[ KAYDET ]'}</Text>
-              </TouchableOpacity>
-              <TouchableOpacity onPress={()=>setFormMode('none')} style={cs.cancelRuleBtn}>
-                <Text style={cs.cancelRuleBtnText}>İPTAL</Text>
-              </TouchableOpacity>
-            </View>
+            {formMode === 'sleep' ? (
+              <>
+                <Text style={cs.ruleFormTitle}>// UYKU MODU</Text>
+                <Text style={cs.sleepDesc}>
+                  Işık seçilen süre içinde yavaşça karararak kapanır.
+                </Text>
+                <View style={cs.timePickerRow}>
+                  <NumberPicker
+                    label="DAKİKA"
+                    value={sleepMinutes}
+                    min={1}
+                    max={180}
+                    onChange={setSleepMinutes}
+                  />
+                </View>
+                <View style={cs.ruleFormButtons}>
+                  <TouchableOpacity
+                    onPress={handleStartFade}
+                    disabled={startingFade}
+                    activeOpacity={0.75}
+                    style={[cs.saveRuleBtn, { borderColor: Colors.purple, backgroundColor: Colors.purpleAlpha }, startingFade && { opacity: 0.5 }]}
+                  >
+                    <Text style={[cs.saveRuleBtnText, { color: Colors.purple }]}>
+                      {startingFade ? 'BAŞLATILIYOR...' : '🌙 [ BAŞLAT ]'}
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={()=>setFormMode('none')} style={cs.cancelRuleBtn}>
+                    <Text style={cs.cancelRuleBtnText}>İPTAL</Text>
+                  </TouchableOpacity>
+                </View>
+              </>
+            ) : (
+              <>
+                <Text style={cs.ruleFormTitle}>{formMode==='daily'?'// GÜNLİK ZAMANLAYICI':'// GERİ SAYIM'}</Text>
+                <View style={cs.timePickerRow}>
+                  <NumberPicker label="SAAT" value={formMode==='daily'?dailyHour:cdHour} min={0} max={23} onChange={formMode==='daily'?setDailyHour:setCdHour} />
+                  <Text style={cs.timeSep}>:</Text>
+                  <NumberPicker label="DAKİKA" value={formMode==='daily'?dailyMinute:cdMinute} min={0} max={59} onChange={formMode==='daily'?setDailyMinute:setCdMinute} />
+                </View>
+                <View style={cs.actionRow}>
+                  <TouchableOpacity onPress={()=>formMode==='daily'?setDailyAction(1):setCdAction(1)} activeOpacity={0.75}
+                    style={[cs.actionChoice,(formMode==='daily'?dailyAction:cdAction)===1&&cs.actionChoiceOn]}>
+                    <Text style={[cs.actionChoiceText,(formMode==='daily'?dailyAction:cdAction)===1&&{color:Colors.cyan}]}>AÇ</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={()=>formMode==='daily'?setDailyAction(0):setCdAction(0)} activeOpacity={0.75}
+                    style={[cs.actionChoice,(formMode==='daily'?dailyAction:cdAction)===0&&cs.actionChoiceOff]}>
+                    <Text style={[cs.actionChoiceText,(formMode==='daily'?dailyAction:cdAction)===0&&{color:Colors.red}]}>KAPAT</Text>
+                  </TouchableOpacity>
+                </View>
+                <View style={cs.ruleFormButtons}>
+                  <TouchableOpacity onPress={formMode==='daily'?handleAddDaily:handleAddCountdown}
+                    disabled={savingRule||(formMode==='countdown'&&cdHour===0&&cdMinute===0)} activeOpacity={0.75}
+                    style={[cs.saveRuleBtn,(savingRule||(formMode==='countdown'&&cdHour===0&&cdMinute===0))&&{opacity:0.5}]}>
+                    <Text style={cs.saveRuleBtnText}>{savingRule?'KAYDEDİLİYOR...':'[ KAYDET ]'}</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={()=>setFormMode('none')} style={cs.cancelRuleBtn}>
+                    <Text style={cs.cancelRuleBtnText}>İPTAL</Text>
+                  </TouchableOpacity>
+                </View>
+              </>
+            )}
           </View>
         </KeyboardAvoidingView>
       </Modal>
@@ -1002,4 +1122,14 @@ const cs = StyleSheet.create({
   saveRuleBtnText: { fontFamily: Fonts.mono, fontSize: 11, letterSpacing: 2, color: Colors.cyan },
   cancelRuleBtn: { height: 42, paddingHorizontal: Spacing.lg, borderWidth: 1, borderColor: Colors.border, borderRadius: Radius.sm, alignItems: 'center', justifyContent: 'center' },
   cancelRuleBtnText: { fontFamily: Fonts.mono, fontSize: 11, letterSpacing: 2, color: Colors.text2 },
+  // Uyku modu
+  sleepDesc: { fontFamily: Fonts.sans, fontSize: 13, color: Colors.text2, lineHeight: 20, textAlign: 'center' },
+  fadeActiveCard: { borderWidth: 1, borderColor: Colors.purple, borderRadius: Radius.md, backgroundColor: Colors.purpleAlpha, padding: Spacing.md, gap: Spacing.sm },
+  fadeActiveHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  fadeActiveTitle: { fontFamily: Fonts.mono, fontSize: 9, letterSpacing: 2, color: Colors.purple },
+  fadeCancelBtn: { paddingHorizontal: Spacing.sm, paddingVertical: 3, borderWidth: 1, borderColor: Colors.red, borderRadius: Radius.sm },
+  fadeCancelText: { fontFamily: Fonts.mono, fontSize: 8, letterSpacing: 2, color: Colors.red },
+  fadeProgressTrack: { height: 2, backgroundColor: Colors.border, borderRadius: 1, overflow: 'hidden' },
+  fadeProgressFill: { height: '100%', backgroundColor: Colors.purple, borderRadius: 1 },
+  fadeRemaining: { fontFamily: Fonts.mono, fontSize: 9, letterSpacing: 1, color: Colors.text3, textAlign: 'center' },
 });

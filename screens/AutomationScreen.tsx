@@ -201,3 +201,56 @@ export function ruleDescription(rule: AutomationRule): string {
     return mins > 0 ? `${mins} dk ${secs} sn sonra ${actionLabel}` : `${secs} sn sonra ${actionLabel}`;
   }
 }
+
+// ── Uyku Modu (Fade) ──────────────────────────────────────────────────────────
+
+export type FadeState = {
+  active:     boolean;
+  remaining?: number;  // saniye
+  progress?:  number;  // 0-100
+  current?:   number;  // mevcut parlaklık
+};
+
+export async function startFade(
+  ip:       string,
+  pin:      string,
+  duration: number,
+  target:   number = 0,
+): Promise<boolean> {
+  try {
+    const url = buildUrl(ip, '/led/fade', { pin, duration, target });
+    console.log('startFade URL:', url);
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    const res = await fetch(url, { signal: controller.signal });
+    clearTimeout(timeoutId);
+    console.log('startFade status:', res.status, res.ok);
+    return res.ok;
+  } catch (e) {
+    console.error('startFade hata:', e);
+    return false;
+  }
+}
+
+export async function cancelFade(ip: string, pin: string): Promise<boolean> {
+  try {
+    const url = buildUrl(ip, '/led/fade', { pin, duration: '1', cancel: '1' });
+    const res = await fetch(url);
+    return res.ok;
+  } catch (e) {
+    console.error('cancelFade hata:', e);
+    return false;
+  }
+}
+
+export async function getFadeState(ip: string, pin: string): Promise<FadeState | null> {
+  try {
+    const url = buildUrl(ip, '/led/fade/state', { pin });
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    return await res.json() as FadeState;
+  } catch (e) {
+    console.error('getFadeState hata:', e);
+    return null;
+  }
+}
