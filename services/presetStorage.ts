@@ -38,8 +38,44 @@ export type Preset = {
   effectSpeed?: number;  // 0-255, varsayılan 128
 };
 
+import { TranslationKey } from '../i18n/translations';
+
+// EFFECT_META artık dil bağımlı — getEffectMeta(t) ile çağrılmalı.
+// Geriye dönük uyumluluk için EFFECT_META adında varsayılan (TR) bir obje de
+// dışa açılır, ancak ekranlar getEffectMeta(t) kullanmalı.
+export function getEffectMeta(
+  t: (key: TranslationKey) => string,
+): Record<EffectType, { label: string; desc: string; hasColor: boolean }> {
+  return {
+    rainbow:      { label: t('effect.rainbow.label'),      desc: t('effect.rainbow.desc'),      hasColor: false },
+    breathe:      { label: t('effect.breathe.label'),      desc: t('effect.breathe.desc'),      hasColor: true  },
+    wave:         { label: t('effect.wave.label'),         desc: t('effect.wave.desc'),         hasColor: true  },
+    fire:         { label: t('effect.fire.label'),         desc: t('effect.fire.desc'),         hasColor: false },
+    meteor:       { label: t('effect.meteor.label'),       desc: t('effect.meteor.desc'),       hasColor: true  },
+    twinkle:      { label: t('effect.twinkle.label'),      desc: t('effect.twinkle.desc'),      hasColor: true  },
+    strobe:       { label: t('effect.strobe.label'),       desc: t('effect.strobe.desc'),       hasColor: true  },
+    comet:        { label: t('effect.comet.label'),        desc: t('effect.comet.desc'),        hasColor: true  },
+    theater:      { label: t('effect.theater.label'),      desc: t('effect.theater.desc'),      hasColor: true  },
+    pulse:        { label: t('effect.pulse.label'),        desc: t('effect.pulse.desc'),        hasColor: true  },
+    colorCycle:   { label: t('effect.colorCycle.label'),   desc: t('effect.colorCycle.desc'),   hasColor: false },
+    gradient:     { label: t('effect.gradient.label'),     desc: t('effect.gradient.desc'),     hasColor: false },
+    wipe:         { label: t('effect.wipe.label'),         desc: t('effect.wipe.desc'),         hasColor: true  },
+    bouncing:     { label: t('effect.bouncing.label'),     desc: t('effect.bouncing.desc'),     hasColor: true  },
+    scanner:      { label: t('effect.scanner.label'),      desc: t('effect.scanner.desc'),      hasColor: true  },
+    chase:        { label: t('effect.chase.label'),        desc: t('effect.chase.desc'),        hasColor: true  },
+    ripple:       { label: t('effect.ripple.label'),       desc: t('effect.ripple.desc'),       hasColor: true  },
+    sparkle:      { label: t('effect.sparkle.label'),      desc: t('effect.sparkle.desc'),      hasColor: true  },
+    noise:        { label: t('effect.noise.label'),        desc: t('effect.noise.desc'),        hasColor: false },
+    larsonScanner:{ label: t('effect.larsonScanner.label'),desc: t('effect.larsonScanner.desc'),hasColor: true  },
+    confetti:     { label: t('effect.confetti.label'),     desc: t('effect.confetti.desc'),     hasColor: false },
+    juggle:       { label: t('effect.juggle.label'),       desc: t('effect.juggle.desc'),       hasColor: false },
+    bpm:          { label: t('effect.bpm.label'),           desc: t('effect.bpm.desc'),          hasColor: false },
+  };
+}
+
+// Geriye dönük uyumluluk — dil sistemine bağlı OLMAYAN sabit TR metin.
+// Yeni kod getEffectMeta(t) kullanmalı; bu sadece eski import'ları kırmamak için.
 export const EFFECT_META: Record<EffectType, { label: string; desc: string; hasColor: boolean }> = {
-  // Mevcut efektler
   rainbow:      { label: 'Gökkuşağı',    desc: 'Tüm renkler döngüsel geçiş',         hasColor: false },
   breathe:      { label: 'Nefes',        desc: 'Seçili renk yavaşça söner yanar',     hasColor: true  },
   wave:         { label: 'Dalga',        desc: 'Renk dalgası şeritten geçer',         hasColor: true  },
@@ -50,7 +86,6 @@ export const EFFECT_META: Record<EffectType, { label: string; desc: string; hasC
   comet:        { label: 'Kuyruklu Y.', desc: 'Kuyruklu yıldız gidip gelir',         hasColor: true  },
   theater:      { label: 'Marquee',      desc: 'Tiyatro ışıkları — her 3. LED',      hasColor: true  },
   pulse:        { label: 'Nabız',        desc: 'Tüm şerit birlikte nabız atar',      hasColor: true  },
-  // Yeni efektler
   colorCycle:   { label: 'Renk Döngüsü', desc: 'Tek renk yavaşça başka renge geçer', hasColor: false },
   gradient:     { label: 'Gradient',     desc: 'Ucundan ucuna renk geçişi',           hasColor: false },
   wipe:         { label: 'Silme',        desc: 'Renk bir uçtan diğerine süpürür',     hasColor: true  },
@@ -60,7 +95,7 @@ export const EFFECT_META: Record<EffectType, { label: string; desc: string; hasC
   ripple:       { label: 'Dalgalanma',   desc: 'Ortadan kenarlara dalgalar yayılır',  hasColor: true  },
   sparkle:      { label: 'Işıltı',       desc: 'Rastgele tek piksel anında parlar',   hasColor: true  },
   noise:        { label: 'Bulut',        desc: 'Organik dalgalanan renk geçişi',      hasColor: false },
-  larsonScanner:{ label: 'Larson',       desc: 'Yumuşak ışık tobu gidip gelir',       hasColor: true  },
+  larsonScanner:{ label: 'Larson',       desc: 'Yumuşak ışık topu gidip gelir',       hasColor: true  },
   confetti:     { label: 'Konfeti',      desc: 'Rastgele renk patlamaları',           hasColor: false },
   juggle:       { label: 'Jonglör',      desc: 'Farklı hızlarda bağımsız toplar',     hasColor: false },
   bpm:          { label: 'BPM',          desc: 'Ritme senkron nabız atışı',           hasColor: false },
@@ -105,6 +140,38 @@ export const DEFAULT_PRESETS: Preset[] = [
 ];
 
 export const DEFAULT_IDS = new Set(DEFAULT_PRESETS.map((p) => p.id));
+
+// Statik (id bazlı) preset adlarının çeviri anahtar eşlemesi.
+// Sadece DEFAULT_PRESETS'teki statik renk presetleri için geçerli —
+// kullanıcının kendi oluşturduğu presetler kendi `name` alanını kullanır.
+const STATIC_PRESET_KEY: Partial<Record<string, TranslationKey>> = {
+  p_white: 'preset.white',
+  p_warm:  'preset.warm',
+  p_night: 'preset.night',
+  p_focus: 'preset.focus',
+  p_red:   'preset.red',
+  p_green: 'preset.green',
+};
+
+/**
+ * Bir preset'in ekranda gösterilecek adını döner.
+ * - Varsayılan statik renk presetleri (Beyaz, Sıcak, vb.) → çevrilir
+ * - Varsayılan efekt presetleri (Gökkuşağı, Nefes, vb.) → getEffectMeta(t) ile çevrilir
+ * - Kullanıcının kendi oluşturduğu/yeniden adlandırdığı presetler → preset.name aynen kullanılır
+ */
+export function getPresetDisplayName(
+  preset: Preset,
+  t: (key: TranslationKey) => string,
+): string {
+  if (DEFAULT_IDS.has(preset.id)) {
+    const staticKey = STATIC_PRESET_KEY[preset.id];
+    if (staticKey) return t(staticKey);
+    if (preset.type === 'effect' && preset.effect) {
+      return getEffectMeta(t)[preset.effect]?.label ?? preset.name;
+    }
+  }
+  return preset.name;
+}
 
 export async function getPresets(): Promise<Preset[]> {
   try {

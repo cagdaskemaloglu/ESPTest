@@ -22,6 +22,8 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { useLanguage } from '../i18n/LanguageContext';
+import { TranslationKey } from '../i18n/translations';
 import { addDevice, getDevices } from '../services/deviceStorage';
 import { FoundDevice, scanNetwork } from '../services/networkScanner';
 import { Colors, Fonts, Radius, Spacing } from '../theme/colors';
@@ -37,12 +39,14 @@ type Props = {
 const generateId = () =>
   `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
 
-const TYPE_META: Record<DeviceType, { label: string; color: string; bg: string }> = {
-  ws2812b:    { label: 'RGB Şerit',       color: Colors.purple, bg: Colors.purpleAlpha },
-  single_led: { label: 'Tek LED / Ampul', color: Colors.amber,  bg: 'rgba(232,160,32,0.1)' },
-  relay:      { label: 'Röle / Ampul',    color: Colors.amber,  bg: 'rgba(232,160,32,0.1)' },
-  unknown:    { label: 'Bilinmiyor',      color: Colors.text3,  bg: Colors.bg4 },
-};
+function getTypeMeta(t: (key: TranslationKey) => string): Record<DeviceType, { label: string; color: string; bg: string }> {
+  return {
+    ws2812b:    { label: t('scan.typeWs2812b'),    color: Colors.purple, bg: Colors.purpleAlpha },
+    single_led: { label: t('scan.typeSingleLed'),  color: Colors.amber,  bg: 'rgba(232,160,32,0.1)' },
+    relay:      { label: t('scan.typeRelay'),      color: Colors.amber,  bg: 'rgba(232,160,32,0.1)' },
+    unknown:    { label: t('scan.typeUnknown'),    color: Colors.text3,  bg: Colors.bg4 },
+  };
+}
 
 type FormState = {
   ip:          string;
@@ -52,6 +56,8 @@ type FormState = {
 };
 
 export default function ScanScreen({ onDeviceAdded, onDeviceSelected, onBack, initialDelay = 0 }: Props) {
+  const { t } = useLanguage();
+  const TYPE_META = getTypeMeta(t);
   const [scanning, setScanning]           = useState(false);
   const [progress, setProgress]           = useState({ scanned: 0, total: 254 });
   const [foundDevices, setFoundDevices]   = useState<FoundDevice[]>([]);
@@ -131,11 +137,11 @@ export default function ScanScreen({ onDeviceAdded, onDeviceSelected, onBack, in
     const existing = findRegistered(found.ip);
     if (existing) {
       Alert.alert(
-        'Cihaz Zaten Kayıtlı',
-        `"${existing.name}" (${found.ip}) zaten listenizde.\nBu cihaza bağlanmak ister misiniz?`,
+        t('scan.alreadyRegisteredTitle'),
+        `"${existing.name}" (${found.ip}) ${t('scan.alreadyRegisteredDesc')}`,
         [
-          { text: 'İptal', style: 'cancel' },
-          { text: 'Bağlan', onPress: () => onDeviceSelected(existing) },
+          { text: t('common.cancel'), style: 'cancel' },
+          { text: t('scan.connectButton'), onPress: () => onDeviceSelected(existing) },
         ]
       );
     } else {
@@ -155,7 +161,7 @@ export default function ScanScreen({ onDeviceAdded, onDeviceSelected, onBack, in
 
     // PIN girilmişse minimum 4 hane kontrolü yap
     if (form.pin.length > 0 && form.pin.length < 4) {
-      setPinError('PIN en az 4 haneli olmalı');
+      setPinError(t('scan.pinErrorShort'));
       return;
     }
 
@@ -201,7 +207,7 @@ export default function ScanScreen({ onDeviceAdded, onDeviceSelected, onBack, in
         {/* Header */}
         <View style={styles.header}>
           <TouchableOpacity onPress={onBack} style={styles.backBtn}>
-            <Text style={styles.backText}>← GERİ</Text>
+            <Text style={styles.backText}>← {t('common.back').toUpperCase()}</Text>
           </TouchableOpacity>
           <Text style={styles.headerBrand}>TORVA · LAB</Text>
           <View style={styles.headerRight}>
@@ -214,9 +220,9 @@ export default function ScanScreen({ onDeviceAdded, onDeviceSelected, onBack, in
         {/* ── Geri sayım ekranı ── */}
         {!delayDone && (
           <View style={styles.countdownWrap}>
-            <Text style={styles.countdownTitle}>// ESP32 BAĞLANIYOR</Text>
+            <Text style={styles.countdownTitle}>// {t('scan.connectingTitle')}</Text>
             <Text style={styles.countdownDesc}>
-              Cihaz yeni ağa bağlanıyor, lütfen bekleyin...
+              {t('scan.connectingDesc')}
             </Text>
 
             {/* Progress bar */}
@@ -224,7 +230,7 @@ export default function ScanScreen({ onDeviceAdded, onDeviceSelected, onBack, in
               <View style={[styles.countdownBarFill, { width: `${countdownPct}%` }]} />
             </View>
 
-            <Text style={styles.countdownSecs}>{countdown} sn</Text>
+            <Text style={styles.countdownSecs}>{countdown} {t('scan.secondsUnit')}</Text>
 
             {/* Hemen ara butonu */}
             <TouchableOpacity
@@ -235,7 +241,7 @@ export default function ScanScreen({ onDeviceAdded, onDeviceSelected, onBack, in
               style={styles.countdownSkipBtn}
               activeOpacity={0.75}
             >
-              <Text style={styles.countdownSkipText}>[ Hemen Ara ]</Text>
+              <Text style={styles.countdownSkipText}>{t('scan.skipWait')}</Text>
             </TouchableOpacity>
           </View>
         )}
@@ -247,15 +253,15 @@ export default function ScanScreen({ onDeviceAdded, onDeviceSelected, onBack, in
         >
           {/* Başlık */}
           <View style={styles.titleBlock}>
-            <Text style={styles.titleEyebrow}>// TARAMA</Text>
+            <Text style={styles.titleEyebrow}>{t('scan.title')}</Text>
             <Text style={styles.titleMain}>Cihaz{'\n'}Ekle</Text>
-            <Text style={styles.titleDesc}>Yerel ağdaki tüm ESP32 cihazları listelenir</Text>
+            <Text style={styles.titleDesc}>{t('scan.titleDesc')}</Text>
 
             {/* WiFi uyarısı */}
             <View style={styles.wifiWarning}>
               <Text style={styles.wifiWarningText}>
-                📶 Tarama yapabilmek için ESP32'nin bağlı olduğu ev WiFi ağında olmalısın.
-                ESP32-Setup ağında değil, kendi internet ağında olduğundan emin ol.
+                {t('scan.wifiWarning1')}
+                {' '}{t('scan.wifiWarning2')}
               </Text>
             </View>
           </View>
@@ -266,9 +272,9 @@ export default function ScanScreen({ onDeviceAdded, onDeviceSelected, onBack, in
               <View style={styles.scanningCard}>
                 <ActivityIndicator color={Colors.cyan} size="small" />
                 <View style={styles.scanningTextGroup}>
-                  <Text style={styles.scanningLabel}>AĞ TARANIYOR</Text>
+                  <Text style={styles.scanningLabel}>{t('scan.scanningLabel')}</Text>
                   <Text style={styles.scanningSubLabel}>
-                    {progress.scanned} / {progress.total} IP · {foundDevices.length} cihaz bulundu
+                    {progress.scanned} / {progress.total} IP · {foundDevices.length} {t('scan.found')}
                   </Text>
                 </View>
                 <Text style={styles.scanningPct}>{progressPct}%</Text>
@@ -285,7 +291,7 @@ export default function ScanScreen({ onDeviceAdded, onDeviceSelected, onBack, in
               <View style={styles.dividerRow}>
                 <View style={styles.dividerLine} />
                 <Text style={styles.dividerLabel}>
-                  {scanning ? 'BULUNANLAR' : `${foundDevices.length} CİHAZ BULUNDU`}
+                  {scanning ? t('scan.foundLabel') : `${foundDevices.length} ${t('scan.deviceFoundCount')}`}
                 </Text>
                 <View style={styles.dividerLine} />
               </View>
@@ -317,7 +323,7 @@ export default function ScanScreen({ onDeviceAdded, onDeviceSelected, onBack, in
                             {/* PIN rozeti */}
                             {device.pinRequired && (
                               <View style={styles.pinBadge}>
-                                <Text style={styles.pinBadgeText}>🔒 PIN</Text>
+                                <Text style={styles.pinBadgeText}>{t('scan.pinBadge')}</Text>
                               </View>
                             )}
                           </View>
@@ -332,7 +338,7 @@ export default function ScanScreen({ onDeviceAdded, onDeviceSelected, onBack, in
 
                           {existing
                             ? <Text style={[styles.deviceRowName, { color: Colors.cyan }]}>{existing.name}</Text>
-                            : <Text style={styles.deviceRowNew}>Yeni cihaz — eklemek için bas</Text>
+                            : <Text style={styles.deviceRowNew}>{t('scan.newDeviceHint')}</Text>
                           }
                         </View>
                       </View>
@@ -356,9 +362,9 @@ export default function ScanScreen({ onDeviceAdded, onDeviceSelected, onBack, in
           {/* Boş durum */}
           {!scanning && foundDevices.length === 0 && progress.scanned > 0 && (
             <View style={styles.emptyBox}>
-              <Text style={styles.emptyText}>Cihaz bulunamadı</Text>
+              <Text style={styles.emptyText}>{t('scan.emptyTitle')}</Text>
               <Text style={styles.emptySubText}>
-                ESP32'nin aynı WiFi ağında olduğundan emin ol
+                {t('scan.emptyDesc')}
               </Text>
             </View>
           )}
@@ -371,11 +377,11 @@ export default function ScanScreen({ onDeviceAdded, onDeviceSelected, onBack, in
               <View style={styles.selectedHeader}>
                 <View style={styles.selectedIpRow}>
                   <View style={styles.selectedIpDot} />
-                  <Text style={styles.selectedIpLabel}>SEÇİLEN CİHAZ</Text>
+                  <Text style={styles.selectedIpLabel}>{t('scan.selectedDeviceLabel')}</Text>
                   <Text style={styles.selectedIpValue}>{form.ip}</Text>
                   {form.pinRequired && (
                     <View style={styles.pinBadge}>
-                      <Text style={styles.pinBadgeText}>🔒 PIN</Text>
+                      <Text style={styles.pinBadgeText}>{t('scan.pinBadge')}</Text>
                     </View>
                   )}
                 </View>
@@ -395,11 +401,11 @@ export default function ScanScreen({ onDeviceAdded, onDeviceSelected, onBack, in
               <View style={styles.nameDivider} />
 
               {/* Cihaz adı */}
-              <Text style={styles.fieldLabel}>CİHAZ ADI</Text>
+              <Text style={styles.fieldLabel}>{t('scan.deviceNameFieldLabel')}</Text>
               <TextInput
                 value={form.deviceName}
                 onChangeText={(t) => setForm({ ...form, deviceName: t })}
-                placeholder="örn. Salon Lambası"
+                placeholder={t('scan.deviceNamePlaceholder')}
                 placeholderTextColor={Colors.text3}
                 autoFocus={!form.pinRequired}
                 returnKeyType={form.pinRequired ? 'next' : 'done'}
@@ -408,14 +414,14 @@ export default function ScanScreen({ onDeviceAdded, onDeviceSelected, onBack, in
               />
 
               {/* PIN girişi — opsiyonel */}
-              <Text style={styles.fieldLabel}>CİHAZ PIN'İ (OPSİYONEL)</Text>
+              <Text style={styles.fieldLabel}>{t('scan.pinFieldLabel')}</Text>
               <TextInput
                 value={form.pin}
                 onChangeText={(t) => {
                   setForm({ ...form, pin: t.replace(/\D/g, '') });
                   setPinError(null);
                 }}
-                placeholder={form.pinRequired ? 'Kurulumda belirlediğin PIN' : 'PIN belirlenmediyse boş bırak'}
+                placeholder={form.pinRequired ? t('scan.pinPlaceholderRequired') : t('scan.pinPlaceholderOptional')}
                 placeholderTextColor={Colors.text3}
                 keyboardType="numeric"
                 secureTextEntry
@@ -432,8 +438,8 @@ export default function ScanScreen({ onDeviceAdded, onDeviceSelected, onBack, in
               <View style={styles.pinHintBox}>
                 <Text style={styles.pinHintText}>
                   {form.pinRequired
-                    ? '🔒 Bu cihaz PIN korumalı. Kurulum sırasında belirlediğin PIN\'i gir.'
-                    : 'ℹ️  PIN belirlenmediyse boş bırakabilirsin.'}
+                    ? t('scan.pinNoteRequired')
+                    : t('scan.pinNoteOptional')}
                 </Text>
               </View>
 
@@ -451,7 +457,7 @@ export default function ScanScreen({ onDeviceAdded, onDeviceSelected, onBack, in
                   styles.saveBtnText,
                   (!form.deviceName.trim() || saving) && styles.saveBtnTextDisabled,
                 ]}>
-                  {saving ? '[ KAYDEDİLİYOR... ]' : '[ KAYDET ve BAĞLAN ]'}
+                  {saving ? t('scan.savingButton') : t('scan.saveButton')}
                 </Text>
               </TouchableOpacity>
 
@@ -460,7 +466,7 @@ export default function ScanScreen({ onDeviceAdded, onDeviceSelected, onBack, in
                 activeOpacity={0.75}
                 style={styles.cancelBtn}
               >
-                <Text style={styles.cancelBtnText}>← Listeye Dön</Text>
+                <Text style={styles.cancelBtnText}>{t('scan.backToList')}</Text>
               </TouchableOpacity>
             </View>
           )}
@@ -471,7 +477,7 @@ export default function ScanScreen({ onDeviceAdded, onDeviceSelected, onBack, in
               {foundDevices.length === 0 && (
                 <View style={styles.dividerRow}>
                   <View style={styles.dividerLine} />
-                  <Text style={styles.dividerLabel}>AKSİYON</Text>
+                  <Text style={styles.dividerLabel}>{t('scan.actionDivider')}</Text>
                   <View style={styles.dividerLine} />
                 </View>
               )}
@@ -482,10 +488,10 @@ export default function ScanScreen({ onDeviceAdded, onDeviceSelected, onBack, in
                 style={[styles.primaryBtn, scanning && styles.btnDisabled]}
               >
                 <Text style={styles.primaryBtnLabel}>
-                  {foundDevices.length > 0 ? 'YENİDEN TARA' : 'TARAMA'}
+                  {foundDevices.length > 0 ? t('scan.rescanLabel') : t('scan.scanLabel')}
                 </Text>
                 <Text style={[styles.primaryBtnText, scanning && styles.btnTextDisabled]}>
-                  {scanning ? '[ Taranıyor... ]' : foundDevices.length > 0 ? '[ Tekrar Tara ]' : '[ Ağda Ara ]'}
+                  {scanning ? t('scan.scanningButton') : foundDevices.length > 0 ? t('scan.rescanButton') : t('scan.scanNowButton')}
                 </Text>
               </TouchableOpacity>
             </>

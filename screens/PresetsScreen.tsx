@@ -21,14 +21,16 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { useLanguage } from '../i18n/LanguageContext';
+import { TranslationKey } from '../i18n/translations';
 import {
   DEFAULT_IDS,
-  EFFECT_META,
   EffectType,
   Preset,
   addPreset,
   applyPreset,
   deletePreset,
+  getEffectMeta, getPresetDisplayName,
   getPresets,
 } from '../services/presetStorage';
 import { Colors, Fonts, Radius, Spacing } from '../theme/colors';
@@ -37,15 +39,16 @@ import { Device } from '../types/Device';
 type Props = { device: Device; onBack: () => void };
 
 // Hız değerini etiket'e çevir
-function speedLabel(speed: number): string {
-  if (speed < 80)  return 'Çok Yavaş';
-  if (speed < 130) return 'Yavaş';
+function speedLabel(speed: number, t: (key: TranslationKey) => string): string {
+  if (speed < 80)  return t('control.speedVerySlow');
+  if (speed < 130) return t('control.speedSlow');
   if (speed < 180) return 'Normal';
-  if (speed < 220) return 'Hızlı';
-  return 'Çok Hızlı';
+  if (speed < 220) return t('control.speedFast');
+  return t('control.speedVeryFast');
 }
 
 export default function PresetsScreen({ device, onBack }: Props) {
+  const { t } = useLanguage();
   const [presets, setPresets]         = useState<Preset[]>([]);
   const [applying, setApplying]       = useState<string | null>(null);
   const [activeId, setActiveId]       = useState<string | null>(null);
@@ -96,9 +99,9 @@ export default function PresetsScreen({ device, onBack }: Props) {
 
   // Kullanıcı preseti sil
   const handleDelete = (preset: Preset) => {
-    Alert.alert('Preseti Sil', `"${preset.name}" silinsin mi?`, [
-      { text: 'İptal', style: 'cancel' },
-      { text: 'Sil', style: 'destructive', onPress: async () => {
+    Alert.alert(t('control.deletePresetTitle'), `"${getPresetDisplayName(preset, t)}"${t('control.deleteRuleConfirm')}`, [
+      { text: t('common.cancel'), style: 'cancel' },
+      { text: t('common.delete'), style: 'destructive', onPress: async () => {
         await deletePreset(preset.id);
         await loadPresets();
         if (activeId === preset.id) setActiveId(null);
@@ -147,9 +150,9 @@ export default function PresetsScreen({ device, onBack }: Props) {
       >
         <Text style={styles.cardIcon}>{preset.icon}</Text>
         <View style={styles.cardInfo}>
-          <Text style={[styles.cardName, isActive && { color: Colors.cyan }]}>{preset.name}</Text>
+          <Text style={[styles.cardName, isActive && { color: Colors.cyan }]}>{getPresetDisplayName(preset, t)}</Text>
           <Text style={styles.cardDesc}>
-            {Math.round((preset.brightness ?? 255) / 255 * 100)}% parlaklık
+            {Math.round((preset.brightness ?? 255) / 255 * 100)}% {t('presets.brightnessSuffix')}
           </Text>
         </View>
         <View style={[styles.colorSwatch, {
@@ -169,7 +172,7 @@ export default function PresetsScreen({ device, onBack }: Props) {
     const isActive   = activeId   === preset.id;
     const isApplying = applying   === preset.id;
     const isExpanded = expandedId === preset.id;
-    const meta       = EFFECT_META[preset.effect as EffectType];
+    const meta       = getEffectMeta(t)[preset.effect as EffectType];
     const editColor  = `rgb(${editR},${editG},${editB})`;
 
     return (
@@ -184,12 +187,12 @@ export default function PresetsScreen({ device, onBack }: Props) {
         >
           <Text style={styles.cardIcon}>{preset.icon}</Text>
           <View style={styles.cardInfo}>
-            <Text style={[styles.cardName, isActive && { color: Colors.cyan }]}>{preset.name}</Text>
+            <Text style={[styles.cardName, isActive && { color: Colors.cyan }]}>{getPresetDisplayName(preset, t)}</Text>
             <Text style={styles.cardDesc}>{meta?.desc ?? preset.effect}</Text>
           </View>
           <View style={styles.effectRight}>
             {/* Hız göstergesi */}
-            <Text style={styles.speedLabel}>{speedLabel(preset.effectSpeed ?? 128)}</Text>
+            <Text style={styles.speedLabel}>{speedLabel(preset.effectSpeed ?? 128, t)}</Text>
             {/* Renk noktası (renk gerektiren efektler için) */}
             {meta?.hasColor && (
               <View style={[styles.effectColorDot, {
@@ -213,7 +216,7 @@ export default function PresetsScreen({ device, onBack }: Props) {
             {/* Hız slider */}
             <View style={styles.panelRow}>
               <Text style={styles.panelLabel}>HIZ</Text>
-              <Text style={[styles.panelVal, { color: Colors.cyan }]}>{speedLabel(editSpeed)}</Text>
+              <Text style={[styles.panelVal, { color: Colors.cyan }]}>{speedLabel(editSpeed, t)}</Text>
             </View>
             <Slider
               style={styles.panelSlider}
@@ -307,7 +310,7 @@ export default function PresetsScreen({ device, onBack }: Props) {
       {/* ── Header ── */}
       <View style={styles.header}>
         <TouchableOpacity onPress={onBack} style={styles.backBtn}>
-          <Text style={styles.backText}>← GERİ</Text>
+          <Text style={styles.backText}>← {t('common.back').toUpperCase()}</Text>
         </TouchableOpacity>
         <Text style={styles.headerBrand}>SAHNELER</Text>
         <TouchableOpacity onPress={() => setShowForm((p) => !p)} style={styles.addBtn}>
@@ -328,20 +331,20 @@ export default function PresetsScreen({ device, onBack }: Props) {
           <Text style={styles.titleEyebrow}>// {device.name}</Text>
           <Text style={styles.titleMain}>Sahneler & Efektler</Text>
           <Text style={styles.titleDesc}>
-            Bas → anında uygula · Efekt kartında › → renk & hız ayarla
+            {t('presets.headerHint')}
           </Text>
         </View>
 
         {/* ── Yeni preset formu ── */}
         {showForm && (
           <View style={styles.form}>
-            <Text style={styles.formTitle}>// MEVCUT RENGİ KAYDET</Text>
+            <Text style={styles.formTitle}>{t('presets.saveCurrentTitle')}</Text>
             <View style={styles.formPreview}>
               <View style={[styles.formPreviewDot, {
                 backgroundColor: `rgb(${device.color?.r ?? 255},${device.color?.g ?? 255},${device.color?.b ?? 255})`,
               }]} />
               <View>
-                <Text style={styles.formPreviewLabel}>KAYDEDİLECEK</Text>
+                <Text style={styles.formPreviewLabel}>{t('presets.toSaveLabel')}</Text>
                 <Text style={styles.formPreviewValue}>
                   RGB {device.color?.r ?? 255}·{device.color?.g ?? 255}·{device.color?.b ?? 255}
                   {' · '}{Math.round((device.brightness ?? 255) / 255 * 100)}%
@@ -349,7 +352,7 @@ export default function PresetsScreen({ device, onBack }: Props) {
               </View>
             </View>
 
-            <Text style={styles.formLabel}>İKON</Text>
+            <Text style={styles.formLabel}>{t('presets.iconLabel')}</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.iconScroll}>
               {['✨','🌟','💫','🎨','🎭','🌿','❄️','🌸','🔮','⚡','🎪','🌺'].map((e) => (
                 <TouchableOpacity key={e} onPress={() => setNewIcon(e)}
@@ -362,7 +365,7 @@ export default function PresetsScreen({ device, onBack }: Props) {
             <Text style={styles.formLabel}>SAHNE ADI</Text>
             <TextInput
               value={newName} onChangeText={setNewName}
-              placeholder="örn. Film Modu"
+              placeholder={t('presets.namePlaceholder')}
               placeholderTextColor={Colors.text3}
               returnKeyType="done" onSubmitEditing={handleSaveNew}
               style={styles.formInput}
@@ -381,14 +384,14 @@ export default function PresetsScreen({ device, onBack }: Props) {
         <View style={styles.section}>
           <View style={styles.divRow}>
             <View style={styles.divLine} />
-            <Text style={styles.divLabel}>STATİK SAHNELER</Text>
+            <Text style={styles.divLabel}>{t('presets.staticScenesLabel')}</Text>
             <View style={styles.divLine} />
           </View>
           <View style={styles.staticGrid}>
             {staticPresets.map(renderStatic)}
           </View>
           {userPresets.length > 0 && (
-            <Text style={styles.hintText}>Kişisel sahneyi silmek için uzun bas</Text>
+            <Text style={styles.hintText}>{t('presets.longPressHint')}</Text>
           )}
         </View>
 
@@ -396,7 +399,7 @@ export default function PresetsScreen({ device, onBack }: Props) {
         <View style={styles.section}>
           <View style={styles.divRow}>
             <View style={styles.divLine} />
-            <Text style={styles.divLabel}>DİNAMİK EFEKTLER</Text>
+            <Text style={styles.divLabel}>{t('presets.dynamicEffectsLabel')}</Text>
             <View style={styles.divLine} />
           </View>
           <View style={styles.effectList}>

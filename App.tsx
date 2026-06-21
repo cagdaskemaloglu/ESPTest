@@ -15,6 +15,7 @@ import ScanScreen from './screens/ScanScreen';
 import SetupScreen from './screens/SetupScreen';
 import StartScreen from './screens/StartScreen';
 
+import { LanguageProvider, useLanguage } from './i18n/LanguageContext';
 import { getDevices, getLastDeviceId, saveLastDeviceId } from './services/deviceStorage';
 import { requestNotificationPermission } from './services/notificationService';
 import { preloadGeometries } from './services/stlCache';
@@ -25,7 +26,18 @@ ExpoSplash.preventAutoHideAsync();
 
 type Step = 'loading' | 'onboarding' | 'start' | 'setup' | 'scan' | 'control' | 'deviceList';
 
+// Üst seviye App — sadece LanguageProvider ile sarmalar.
+// Asıl mantık AppInner içinde, çünkü useLanguage() Provider altında çağrılmalı.
 export default function App() {
+  return (
+    <LanguageProvider>
+      <AppInner />
+    </LanguageProvider>
+  );
+}
+
+function AppInner() {
+  const { ready: languageReady } = useLanguage();
   const [step, setStep]                 = useState<Step>('loading');
   const [activeDevice, setActiveDevice] = useState<Device | null>(null);
   const [devices, setDevices]           = useState<Device[]>([]);
@@ -73,7 +85,9 @@ export default function App() {
   };
 
   // ── Early returns ──────────────────────────────────────────────────────────
-  if (!appReady)   return <View style={styles.bg} />;
+  // languageReady da beklenir — splash sırasında dil zaten algılanmış olur,
+  // böylece ilk gerçek ekran (onboarding/start) doğru dilde açılır.
+  if (!appReady || !languageReady) return <View style={styles.bg} />;
   if (!splashDone) return <SplashAnimation onFinish={handleSplashFinish} />;
   if (step === 'onboarding') return <OnboardingScreen onDone={() => setStep('start')} />;
 

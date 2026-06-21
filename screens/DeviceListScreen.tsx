@@ -15,6 +15,7 @@ import { useEffect, useState } from 'react';
 import {
   Alert,
   FlatList,
+  Modal,
   SafeAreaView,
   StyleSheet,
   Text,
@@ -22,6 +23,8 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { useLanguage } from '../i18n/LanguageContext';
+import { LANGUAGE_META, SUPPORTED_LANGUAGES } from '../i18n/translations';
 import {
   getDevices,
   removeDevice,
@@ -58,7 +61,9 @@ export default function DeviceListScreen({
   onBack,
   onStart,
 }: Props) {
+  const { t, language, setLanguage } = useLanguage();
   const [devices, setDevices]           = useState<Device[]>([]);
+  const [showLanguagePicker, setShowLanguagePicker] = useState(false);
   const [editingId, setEditingId]       = useState<string | null>(null);
   const [editingName, setEditingName]   = useState('');
   const [resetting, setResetting]       = useState<string | null>(null);
@@ -79,12 +84,12 @@ export default function DeviceListScreen({
   // ── Sil ────────────────────────────────────────────────────────────────────
   const handleDelete = (device: Device) => {
     Alert.alert(
-      'Cihazı Listeden Kaldır',
-      `"${device.name}" uygulamadan kaldırılsın mı?\n\nESP32 etkilenmez.`,
+      t('deviceList.removeTitle'),
+      `"${device.name}" ${t('deviceList.removeDesc')}`,
       [
-        { text: 'İptal', style: 'cancel' },
+        { text: t('common.cancel'), style: 'cancel' },
         {
-          text: 'Kaldır', style: 'destructive',
+          text: t('deviceList.removeButton'), style: 'destructive',
           onPress: async () => {
             await removeDevice(device.id);
             await AsyncStorage.removeItem('torva_setup_done');
@@ -109,12 +114,11 @@ export default function DeviceListScreen({
   // ── Fabrika sıfırlama ──────────────────────────────────────────────────────
   const handleFactoryReset = (device: Device) => {
     Alert.alert(
-      '⚠️ Fabrika Sıfırlama',
-      `"${device.name}" cihazı sıfırlanacak.\n\n` +
-      `• WiFi bilgileri silinecek\n• Automation kuralları silinecek\n• Yeniden kurulum gerekecek\n\nBu işlem geri alınamaz.`,
+      t('deviceList.factoryResetTitle'),
+      `"${device.name}" ${t('deviceList.factoryResetDesc')}`,
       [
-        { text: 'İptal', style: 'cancel' },
-        { text: 'Sıfırla', style: 'destructive', onPress: () => confirmFactoryReset(device) },
+        { text: t('common.cancel'), style: 'cancel' },
+        { text: t('deviceList.factoryResetButton'), style: 'destructive', onPress: () => confirmFactoryReset(device) },
       ]
     );
   };
@@ -131,19 +135,19 @@ export default function DeviceListScreen({
         await cancelAllNotifications();
         const remaining = await getDevices();
         Alert.alert(
-          'Sıfırlama Tamamlandı',
-          `"${device.name}" sıfırlandı. ESP32 "ESP32-Setup" modunda.\n\nYeniden kurmak için Kurulum Başlat'ı kullan.`,
-          [{ text: 'Tamam', onPress: () => { if (remaining.length === 0) onStart(); else if (device.id === activeDeviceId) onBack(); else loadDevices(); } }]
+          t('deviceList.resetDoneTitle'),
+          `"${device.name}" ${t('deviceList.resetDoneDesc')}`,
+          [{ text: t('common.ok'), onPress: () => { if (remaining.length === 0) onStart(); else if (device.id === activeDeviceId) onBack(); else loadDevices(); } }]
         );
-      } else { throw new Error('Server hatası'); }
+      } else { throw new Error(t('deviceList.serverError')); }
     } catch {
       Alert.alert(
-        'ESP32\'ye Ulaşılamadı',
-        `"${device.name}" cihazına bağlanılamadı.\n\nSadece uygulamadan kaldırmak ister misin?`,
+        t('deviceList.unreachableTitle'),
+        `"${device.name}" ${t('deviceList.unreachableDesc')}`,
         [
-          { text: 'İptal', style: 'cancel' },
+          { text: t('common.cancel'), style: 'cancel' },
           {
-            text: 'Sadece Listeden Kaldır', style: 'destructive',
+            text: t('deviceList.removeOnlyButton'), style: 'destructive',
             onPress: async () => {
               await removeDevice(device.id);
               await AsyncStorage.removeItem('torva_setup_done');
@@ -190,7 +194,7 @@ export default function DeviceListScreen({
         });
       }
     } catch {
-      setOtaState(device.id, { status: 'error', errorMsg: 'Cihaza ulaşılamadı' });
+      setOtaState(device.id, { status: 'error', errorMsg: t('deviceList.otaUnreachable') });
     }
   };
 
@@ -198,14 +202,14 @@ export default function DeviceListScreen({
   const handleOtaUpdate = (device: Device) => {
     const ota = otaStates[device.id];
     Alert.alert(
-      'Firmware Güncelle',
-      `"${device.name}" cihazı güncellenecek.\n\n` +
-      `Mevcut: ${ota?.current ?? '?'}\nYeni: ${ota?.latest ?? '?'}\n\n` +
-      (ota?.notes ? `Notlar: ${ota.notes}\n\n` : '') +
-      `Güncelleme ~30-60 saniye sürer. Bu sürede cihaz yanıt vermez.`,
+      t('deviceList.otaUpdateTitle'),
+      `"${device.name}" ${t('deviceList.otaUpdateDesc')}` +
+      `${t('deviceList.currentVersionLabel')}: ${ota?.current ?? '?'}\n${t('deviceList.otaNewVersionLabel')}: ${ota?.latest ?? '?'}\n\n` +
+      (ota?.notes ? `${ota.notes}\n\n` : '') +
+      t('deviceList.otaUpdateDuration'),
       [
-        { text: 'İptal', style: 'cancel' },
-        { text: 'Güncelle', onPress: () => applyOtaUpdate(device) },
+        { text: t('common.cancel'), style: 'cancel' },
+        { text: t('deviceList.otaUpdateButton'), onPress: () => applyOtaUpdate(device) },
       ]
     );
   };
@@ -218,15 +222,15 @@ export default function DeviceListScreen({
 
       // ESP32 güncelleme sırasında yanıt vermez — 60 saniye bekle sonra kontrol et
       Alert.alert(
-        'Güncelleme Başladı',
-        'ESP32 güncelleniyor. ~60 saniye sonra otomatik yeniden başlar.\n\nCihaz yeniden başladıktan sonra "Firmware Kontrol Et" ile yeni sürümü doğrulayabilirsin.',
+        t('deviceList.otaStartedTitle'),
+        t('deviceList.otaStartedDesc'),
         [{
-          text: 'Tamam',
+          text: t('common.ok'),
           onPress: () => setOtaState(device.id, { status: 'idle' }),
         }]
       );
     } catch {
-      setOtaState(device.id, { status: 'error', errorMsg: 'Güncelleme başlatılamadı' });
+      setOtaState(device.id, { status: 'error', errorMsg: t('deviceList.otaStartFailed') });
     }
   };
 
@@ -266,7 +270,7 @@ export default function DeviceListScreen({
                   }]}>
                     {item.type === 'ws2812b' ? 'RGB' :
                      item.type === 'single_led' ? 'LED' :
-                     item.type === 'relay' ? 'RÖLE' : '?'}
+                     item.type === 'relay' ? t('deviceList.relayType') : '?'}
                   </Text>
                 </View>
               </TouchableOpacity>
@@ -277,23 +281,23 @@ export default function DeviceListScreen({
           <View style={styles.rowActions}>
             {isEditing ? (
               <TouchableOpacity onPress={confirmRename} style={styles.actionBtn}>
-                <Text style={[styles.actionText, { color: Colors.cyan }]}>KAYDET</Text>
+                <Text style={[styles.actionText, { color: Colors.cyan }]}>{t('deviceList.saveButton')}</Text>
               </TouchableOpacity>
             ) : isResetting ? (
-              <Text style={[styles.actionText, { color: Colors.amber }]}>SIFIRLANIYOR...</Text>
+              <Text style={[styles.actionText, { color: Colors.amber }]}>{t('deviceList.resettingLabel')}</Text>
             ) : (
               <>
                 <TouchableOpacity onPress={() => startEdit(item)} style={styles.actionBtn}>
-                  <Text style={styles.actionText}>DÜZENLE</Text>
+                  <Text style={styles.actionText}>{t('deviceList.editButton')}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity onPress={() => handleDelete(item)} style={styles.actionBtn}>
-                  <Text style={[styles.actionText, { color: Colors.red }]}>KALDIR</Text>
+                  <Text style={[styles.actionText, { color: Colors.red }]}>{t('deviceList.removeShortButton')}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   onPress={() => handleFactoryReset(item)}
                   style={[styles.actionBtn, styles.resetBtn]}
                 >
-                  <Text style={[styles.actionText, { color: Colors.amber }]}>SIFIRLA</Text>
+                  <Text style={[styles.actionText, { color: Colors.amber }]}>{t('deviceList.resetShortButton')}</Text>
                 </TouchableOpacity>
               </>
             )}
@@ -311,27 +315,27 @@ export default function DeviceListScreen({
               activeOpacity={0.75}
             >
               <Text style={styles.otaCheckBtnText}>
-                {ota.status === 'up_to_date' ? '✓ Güncel · Tekrar Kontrol Et' : '↑ Firmware Kontrol Et'}
+                {ota.status === 'up_to_date' ? t('deviceList.otaUpToDate') : t('deviceList.otaCheckButton')}
               </Text>
             </TouchableOpacity>
           )}
 
           {/* Kontrol ediliyor */}
           {ota.status === 'checking' && (
-            <Text style={styles.otaStatusText}>⏳ Sürüm kontrol ediliyor...</Text>
+            <Text style={styles.otaStatusText}>{t('deviceList.otaChecking')}</Text>
           )}
 
           {/* Güncelleniyor */}
           {ota.status === 'updating' && (
             <Text style={[styles.otaStatusText, { color: Colors.amber }]}>
-              ⚡ Güncelleme devam ediyor...
+              {t('deviceList.otaUpdating')}
             </Text>
           )}
 
           {/* Hata */}
           {ota.status === 'error' && (
             <Text style={[styles.otaStatusText, { color: Colors.red }]}>
-              ⚠ {ota.errorMsg ?? 'Bağlantı hatası'}
+              ⚠ {ota.errorMsg ?? t('deviceList.otaConnectionError')}
             </Text>
           )}
 
@@ -339,7 +343,7 @@ export default function DeviceListScreen({
           {ota.status === 'available' && (
             <View style={styles.otaUpdateRow}>
               <View style={styles.otaUpdateInfo}>
-                <Text style={styles.otaUpdateLabel}>YENİ SÜRÜM</Text>
+                <Text style={styles.otaUpdateLabel}>{t('deviceList.otaNewVersionLabel')}</Text>
                 <Text style={styles.otaUpdateVersions}>
                   {ota.current} → <Text style={{ color: Colors.cyan }}>{ota.latest}</Text>
                 </Text>
@@ -352,7 +356,7 @@ export default function DeviceListScreen({
                 style={styles.otaUpdateBtn}
                 activeOpacity={0.75}
               >
-                <Text style={styles.otaUpdateBtnText}>GÜNCELLE</Text>
+                <Text style={styles.otaUpdateBtnText}>{t('deviceList.otaUpdateNowButton')}</Text>
               </TouchableOpacity>
             </View>
           )}
@@ -360,7 +364,7 @@ export default function DeviceListScreen({
           {/* Güncel */}
           {ota.status === 'up_to_date' && (
             <Text style={[styles.otaStatusText, { color: Colors.green }]}>
-              ✓ {ota.current} — en güncel sürüm
+              ✓ {ota.current} — {t('deviceList.otaUpToDateLabel')}
             </Text>
           )}
 
@@ -376,40 +380,89 @@ export default function DeviceListScreen({
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={onBack} style={styles.backBtn}>
-          <Text style={styles.backText}>← GERİ</Text>
+          <Text style={styles.backText}>← {t('common.back').toUpperCase()}</Text>
         </TouchableOpacity>
-        <Text style={styles.headerBrand}>CİHAZLAR</Text>
+        <Text style={styles.headerBrand}>{t('deviceList.headerBrand')}</Text>
         <TouchableOpacity
           onPress={() => Alert.alert(
-            'Cihaz Ekle',
-            'Nasıl eklemek istersiniz?',
+            t('deviceList.addDeviceTitle'),
+            t('deviceList.addPrompt'),
             [
               {
-                text: 'Yeni Kurulum',
+                text: t('deviceList.newSetup'),
                 onPress: onSetup,
               },
               {
-                text: 'Ağda Ara',
+                text: t('deviceList.scanNetwork'),
                 onPress: onAddNew,
               },
-              { text: 'İptal', style: 'cancel' },
+              { text: t('common.cancel'), style: 'cancel' },
             ]
           )}
           style={styles.addBtn}
         >
-          <Text style={styles.addText}>+ EKLE</Text>
+          <Text style={styles.addText}>{t('deviceList.addButton')}</Text>
         </TouchableOpacity>
       </View>
       <View style={styles.headerDivider} />
 
       {/* Başlık */}
       <View style={styles.titleBlock}>
-        <Text style={styles.titleEyebrow}>// KAYITLI CİHAZLAR</Text>
-        <Text style={styles.titleMain}>{devices.length} cihaz</Text>
+        <Text style={styles.titleEyebrow}>{t('deviceList.title')}</Text>
+        <Text style={styles.titleMain}>{devices.length} {t('deviceList.count')}</Text>
         <Text style={styles.titleDesc}>
-          SIFIRLA → ESP32 fabrika ayarlarına döner · GÜNCELLE → Firmware OTA
+          {t('deviceList.hint')}
         </Text>
       </View>
+
+      {/* Dil seçimi */}
+      <TouchableOpacity
+        onPress={() => setShowLanguagePicker(true)}
+        style={styles.langRow}
+        activeOpacity={0.75}
+      >
+        <Text style={styles.langLabel}>{t('settings.language')}</Text>
+        <View style={styles.langValue}>
+          <Text style={styles.langFlag}>{LANGUAGE_META[language].flag}</Text>
+          <Text style={styles.langValueText}>{LANGUAGE_META[language].label}</Text>
+          <Text style={styles.chevronRight}>›</Text>
+        </View>
+      </TouchableOpacity>
+
+      {/* Dil seçim modalı */}
+      <Modal
+        visible={showLanguagePicker}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowLanguagePicker(false)}
+      >
+        <TouchableOpacity
+          style={styles.langModalBackdrop}
+          activeOpacity={1}
+          onPress={() => setShowLanguagePicker(false)}
+        >
+          <View style={styles.langModalCard}>
+            <Text style={styles.langModalTitle}>{t('settings.selectLanguage')}</Text>
+            {SUPPORTED_LANGUAGES.map((lang) => (
+              <TouchableOpacity
+                key={lang}
+                onPress={async () => {
+                  await setLanguage(lang);
+                  setShowLanguagePicker(false);
+                }}
+                style={[styles.langOption, language === lang && styles.langOptionActive]}
+                activeOpacity={0.75}
+              >
+                <Text style={styles.langFlag}>{LANGUAGE_META[lang].flag}</Text>
+                <Text style={[styles.langOptionText, language === lang && styles.langOptionTextActive]}>
+                  {LANGUAGE_META[lang].label}
+                </Text>
+                {language === lang && <Text style={styles.langCheck}>✓</Text>}
+              </TouchableOpacity>
+            ))}
+          </View>
+        </TouchableOpacity>
+      </Modal>
 
       {/* Liste */}
       <FlatList
@@ -420,17 +473,17 @@ export default function DeviceListScreen({
         ItemSeparatorComponent={() => <View style={styles.separator} />}
         ListEmptyComponent={
           <View style={styles.emptyBox}>
-            <Text style={styles.emptyText}>Henüz kayıtlı cihaz yok.</Text>
-            <Text style={styles.emptySubText}>Sağ üstteki + butonuna bas ve ağı tara.</Text>
+            <Text style={styles.emptyText}>{t('deviceList.emptyTitle')}</Text>
+            <Text style={styles.emptySubText}>{t('deviceList.emptyDesc')}</Text>
           </View>
         }
       />
 
       {/* Fiziksel reset notu */}
       <View style={styles.infoBox}>
-        <Text style={styles.infoTitle}>📌 Fiziksel Reset</Text>
+        <Text style={styles.infoTitle}>{t('deviceList.physicalResetTitle')}</Text>
         <Text style={styles.infoText}>
-          Uygulamaya erişemiyorsan GPIO 0'daki butonu 3 saniye basılı tut → LED sarı → kırmızı → sıfırlanır
+          {t('deviceList.physicalResetDesc')}
         </Text>
       </View>
 
@@ -438,7 +491,7 @@ export default function DeviceListScreen({
       <View style={styles.footer}>
         <Text style={styles.footerText}>37.0° N · 35.3° E</Text>
         <View style={styles.footerSep} />
-        <Text style={styles.footerText}>Smart Craft · IoT</Text>
+        <Text style={styles.footerText}>{t('deviceList.footerBrand')}</Text>
       </View>
 
     </SafeAreaView>
@@ -458,6 +511,50 @@ const styles = StyleSheet.create({
   titleEyebrow: { fontFamily: Fonts.mono, fontSize: 10, letterSpacing: 4, color: Colors.cyan },
   titleMain: { fontFamily: Fonts.sans, fontSize: 28, color: Colors.text, fontWeight: '300' },
   titleDesc: { fontFamily: Fonts.mono, fontSize: 9, letterSpacing: 1, color: Colors.text3, lineHeight: 16 },
+  // Dil seçimi
+  langRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginHorizontal: Spacing.xl,
+    marginTop: Spacing.md,
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.md,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    borderRadius: Radius.md,
+    backgroundColor: Colors.bg3,
+  },
+  langLabel: { fontFamily: Fonts.mono, fontSize: 9, letterSpacing: 3, color: Colors.text3 },
+  langValue: { flexDirection: 'row', alignItems: 'center', gap: Spacing.xs },
+  langFlag: { fontSize: 16 },
+  langValueText: { fontFamily: Fonts.sans, fontSize: 13, color: Colors.text },
+  chevronRight: { fontFamily: Fonts.mono, fontSize: 16, color: Colors.text3 },
+  langModalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', alignItems: 'center', justifyContent: 'center' },
+  langModalCard: {
+    width: '80%',
+    backgroundColor: Colors.bg2,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    borderRadius: Radius.md,
+    padding: Spacing.lg,
+    gap: Spacing.sm,
+  },
+  langModalTitle: { fontFamily: Fonts.mono, fontSize: 9, letterSpacing: 3, color: Colors.text3, marginBottom: Spacing.sm },
+  langOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    paddingVertical: Spacing.md,
+    paddingHorizontal: Spacing.md,
+    borderRadius: Radius.sm,
+    borderWidth: 1,
+    borderColor: 'transparent',
+  },
+  langOptionActive: { borderColor: Colors.cyan2, backgroundColor: Colors.cyanAlpha },
+  langOptionText: { flex: 1, fontFamily: Fonts.sans, fontSize: 14, color: Colors.text2 },
+  langOptionTextActive: { color: Colors.cyan },
+  langCheck: { fontFamily: Fonts.mono, fontSize: 14, color: Colors.cyan },
   listContent: { paddingBottom: Spacing.lg },
   separator: { height: StyleSheet.hairlineWidth, backgroundColor: Colors.border3 },
 

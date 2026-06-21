@@ -24,6 +24,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { useLanguage } from '../i18n/LanguageContext';
 import { Colors, Fonts, Radius, Spacing } from '../theme/colors';
 
 export const SETUP_DONE_KEY = 'torva_setup_done';
@@ -35,6 +36,7 @@ type Props = {
 };
 
 export default function StartScreen({ onSetup, onScan, onBack }: Props) {
+  const { t } = useLanguage();
   const [setupDone, setSetupDone] = useState(false);
   const [loading, setLoading]     = useState(true);
 
@@ -70,7 +72,7 @@ export default function StartScreen({ onSetup, onScan, onBack }: Props) {
       <View style={styles.header}>
         {onBack ? (
           <TouchableOpacity onPress={onBack} style={styles.backBtn}>
-            <Text style={styles.backText}>← GERİ</Text>
+            <Text style={styles.backText}>← {t('common.back').toUpperCase()}</Text>
           </TouchableOpacity>
         ) : (
           <View style={styles.backBtn} />
@@ -84,10 +86,10 @@ export default function StartScreen({ onSetup, onScan, onBack }: Props) {
 
         {/* Başlık */}
         <View style={styles.titleBlock}>
-          <Text style={styles.titleEyebrow}>// HOŞ GELDİN</Text>
-          <Text style={styles.titleMain}>Smart{'\n'}Light</Text>
+          <Text style={styles.titleEyebrow}>{t('start.eyebrow')}</Text>
+          <Text style={styles.titleMain}>{t('start.titleMain')}</Text>
           <Text style={styles.titleDesc}>
-            ESP32 tabanlı LED cihazlarını WiFi üzerinden kontrol et.
+            {t('start.titleDesc')}
           </Text>
         </View>
 
@@ -100,10 +102,10 @@ export default function StartScreen({ onSetup, onScan, onBack }: Props) {
             activeOpacity={0.8}
             style={styles.primaryBtn}
           >
-            <Text style={styles.primaryBtnLabel}>İLK KURULUM</Text>
-            <Text style={styles.primaryBtnText}>[ Kurulum Başlat ]</Text>
+            <Text style={styles.primaryBtnLabel}>{t('start.primaryLabel')}</Text>
+            <Text style={styles.primaryBtnText}>{t('start.primaryButton')}</Text>
             <Text style={styles.primaryBtnDesc}>
-              ESP32'yi ilk kez WiFi'a bağlıyorsan buradan başla
+              {t('start.primaryDesc')}
             </Text>
           </TouchableOpacity>
 
@@ -115,12 +117,12 @@ export default function StartScreen({ onSetup, onScan, onBack }: Props) {
           >
             <View style={styles.secondaryBtnTop}>
               <View>
-                <Text style={styles.secondaryBtnLabel}>AĞ TARAMA</Text>
+                <Text style={styles.secondaryBtnLabel}>{t('start.secondaryLabel')}</Text>
                 <Text style={[
                   styles.secondaryBtnText,
                   !setupDone && { color: Colors.text3 },
                 ]}>
-                  [ Cihaz Ara ]
+                  {t('start.secondaryButton')}
                 </Text>
               </View>
               {!setupDone && (
@@ -131,13 +133,12 @@ export default function StartScreen({ onSetup, onScan, onBack }: Props) {
             </View>
             {!setupDone ? (
               <Text style={styles.secondaryBtnDisabledDesc}>
-                Önce ESP32'yi WiFi'a bağlamak için{' '}
-                <Text style={{ color: Colors.cyan }}>"Kurulum Başlat"</Text>
-                {' '}adımını tamamla
+                {t('start.secondaryDisabledDesc')}{' '}
+                <Text style={{ color: Colors.cyan }}>{t('start.secondaryDisabledHighlight')}</Text>
               </Text>
             ) : (
               <Text style={styles.secondaryBtnDesc}>
-                ESP32 daha önce WiFi'a bağlandıysa ağı tara ve cihazı bul
+                {t('start.secondaryDesc')}
               </Text>
             )}
           </TouchableOpacity>
@@ -146,23 +147,23 @@ export default function StartScreen({ onSetup, onScan, onBack }: Props) {
 
         {/* Bilgi notu */}
         <View style={styles.infoBox}>
-          <Text style={styles.infoTitle}>Nasıl çalışır?</Text>
+          <Text style={styles.infoTitle}>{t('start.infoTitle')}</Text>
           <View style={styles.infoStep}>
             <Text style={styles.infoNum}>01</Text>
             <Text style={styles.infoText}>
-              ESP32'yi güce bağla → <Text style={styles.infoHighlight}>ESP32-Setup</Text> ağı görünür
+              {t('start.infoStep1')}
             </Text>
           </View>
           <View style={styles.infoStep}>
             <Text style={styles.infoNum}>02</Text>
             <Text style={styles.infoText}>
-              "Kurulum Başlat" ile ESP32'yi ev WiFi'ına bağla
+              {t('start.infoStep2')}
             </Text>
           </View>
           <View style={styles.infoStep}>
             <Text style={styles.infoNum}>03</Text>
             <Text style={styles.infoText}>
-              Kendi WiFi ağına geç → "Cihaz Ara" ile cihazı bul
+              {t('start.infoStep3')}
             </Text>
           </View>
         </View>
@@ -173,7 +174,7 @@ export default function StartScreen({ onSetup, onScan, onBack }: Props) {
       <View style={styles.footer}>
         <Text style={styles.footerText}>37.0° N · 35.3° E</Text>
         <View style={styles.footerSep} />
-        <Text style={styles.footerText}>Smart Craft · IoT</Text>
+        <Text style={styles.footerText}>{t('start.footerBrand')}</Text>
       </View>
 
     </SafeAreaView>

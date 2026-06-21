@@ -24,6 +24,8 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { useLanguage } from '../i18n/LanguageContext';
+import { TranslationKey } from '../i18n/translations';
 import { Colors, Fonts, Radius, Spacing } from '../theme/colors';
 
 const ESP32_AP_IP      = '192.168.4.1';
@@ -43,15 +45,16 @@ function signalBars(rssi: number): string {
   return '░░░░';
 }
 
-function signalLabel(rssi: number): string {
-  if (rssi >= -50) return 'Mükemmel';
-  if (rssi >= -65) return 'İyi';
-  if (rssi >= -75) return 'Orta';
-  if (rssi >= -85) return 'Zayıf';
-  return 'Çok Zayıf';
+function signalLabel(rssi: number, t: (key: TranslationKey) => string): string {
+  if (rssi >= -50) return t('setup.signalExcellent');
+  if (rssi >= -65) return t('setup.signalGood');
+  if (rssi >= -75) return t('setup.signalFair');
+  if (rssi >= -85) return t('setup.signalWeak');
+  return t('setup.signalVeryWeak');
 }
 
 export default function SetupScreen({ onDone, onBack }: Props) {
+  const { t } = useLanguage();
   const [ssid, setSsid]         = useState('');
   const [password, setPassword] = useState('');
   const [pin, setPin]           = useState('');
@@ -118,14 +121,14 @@ export default function SetupScreen({ onDone, onBack }: Props) {
       if (!mountedRef.current) return;
       const data = await res.json() as WifiNetwork[];
       if (data.length === 0) {
-        setWifiError('Çevrede ağ bulunamadı. Tekrar dene.');
+        setWifiError(t('setup.wifiScanEmpty'));
       } else {
         setWifiList(data.filter((n) => n.ssid.trim() !== '').sort((a, b) => b.rssi - a.rssi));
         setShowDropdown(true); // Tarama bitince otomatik aç
       }
     } catch {
       if (!mountedRef.current) return;
-      setWifiError('Ağ listesi alınamadı.\nESP32-Setup ağına bağlı olduğundan emin ol.');
+      setWifiError(t('setup.wifiScanFailed'));
     }
     setScanningWifi(false);
   };
@@ -134,20 +137,20 @@ export default function SetupScreen({ onDone, onBack }: Props) {
     setPinError(null);
     // PIN boşsa opsiyonel — doğrulama atla
     if (pin.length === 0) return true;
-    if (pin.length < 4) { setPinError('PIN en az 4 haneli olmalı'); return false; }
-    if (pin.length > 6) { setPinError('PIN en fazla 6 haneli olmalı'); return false; }
-    if (!/^\d+$/.test(pin)) { setPinError('PIN sadece rakamlardan oluşmalı'); return false; }
-    if (pin !== pinConfirm) { setPinError('PIN\'ler eşleşmiyor'); return false; }
+    if (pin.length < 4) { setPinError(t('setup.pinErrorTooShort')); return false; }
+    if (pin.length > 6) { setPinError(t('setup.pinErrorTooLong')); return false; }
+    if (!/^\d+$/.test(pin)) { setPinError(t('setup.pinErrorNotDigits')); return false; }
+    if (pin !== pinConfirm) { setPinError(t('setup.pinErrorMismatch')); return false; }
     return true;
   };
 
   const setup = async () => {
-    if (!ssid.trim()) { setStatusMsg('WiFi ağ adı boş olamaz.'); setPhase('error'); return; }
+    if (!ssid.trim()) { setStatusMsg(t('setup.statusEmptySsid')); setPhase('error'); return; }
     if (!validatePin()) return;
 
     setLoading(true);
     setPhase('connecting');
-    setStatusMsg("ESP32'ye bağlanıyor...");
+    setStatusMsg(t('setup.statusConnecting'));
 
     try {
       // WiFi + PIN aynı istekte gönderilir
@@ -161,7 +164,7 @@ export default function SetupScreen({ onDone, onBack }: Props) {
       console.log('SETUP RESPONSE:', text);
 
       setPhase('done');
-      setStatusMsg('Kaydedildi! ESP32 yeniden başlıyor...');
+      setStatusMsg(t('setup.statusSaved'));
 
       // Kurulum tamamlandı — StartScreen'de "Cihaz Ara" aktif olsun
       await AsyncStorage.setItem('torva_setup_done', 'true');
@@ -172,7 +175,7 @@ export default function SetupScreen({ onDone, onBack }: Props) {
       }, 2000);
     } catch {
       setPhase('error');
-      setStatusMsg("❌ ESP32'ye bağlanılamadı. ESP32-Setup ağına bağlı olduğundan emin ol.");
+      setStatusMsg(t('setup.statusError'));
       setLoading(false);
     }
   };
@@ -200,7 +203,7 @@ export default function SetupScreen({ onDone, onBack }: Props) {
         {/* Header */}
         <View style={styles.header}>
           <TouchableOpacity onPress={onBack} style={styles.headerBackBtn}>
-            <Text style={styles.headerBackText}>← GERİ</Text>
+            <Text style={styles.headerBackText}>← {t('common.back').toUpperCase()}</Text>
           </TouchableOpacity>
           <Text style={styles.headerBrand}>TORVA · LAB</Text>
           <View style={styles.headerRight}>
@@ -217,8 +220,8 @@ export default function SetupScreen({ onDone, onBack }: Props) {
         >
           {/* Başlık */}
           <View style={styles.titleBlock}>
-            <Text style={styles.titleLabel}>// KURULUM</Text>
-            <Text style={styles.titleSub}>ESP32 Wi-Fi Yapılandırması</Text>
+            <Text style={styles.titleLabel}>{t('setup.title')}</Text>
+            <Text style={styles.titleSub}>{t('setup.subtitle')}</Text>
           </View>
 
           {/* Bağlantı durum kartı */}
@@ -233,16 +236,16 @@ export default function SetupScreen({ onDone, onBack }: Props) {
               }
               <View style={styles.connCardText}>
                 {isChecking && (
-                  <><Text style={styles.connCardTitle}>ESP32 aranıyor...</Text>
-                  <Text style={styles.connCardSub}>192.168.4.1 kontrol ediliyor</Text></>
+                  <><Text style={styles.connCardTitle}>{t('setup.connCardSearching')}</Text>
+                  <Text style={styles.connCardSub}>{t('setup.connCardSearchingSub')}</Text></>
                 )}
                 {isConnected && (
-                  <><Text style={[styles.connCardTitle, { color: Colors.green }]}>ESP32-Setup'a bağlısın ✓</Text>
-                  <Text style={styles.connCardSub}>WiFi ağlarını tarayabilir ve kurulumu tamamlayabilirsin</Text></>
+                  <><Text style={[styles.connCardTitle, { color: Colors.green }]}>{t('setup.connCardConnected')}</Text>
+                  <Text style={styles.connCardSub}>{t('setup.connCardConnectedSub')}</Text></>
                 )}
                 {connState === 'disconnected' && (
-                  <><Text style={[styles.connCardTitle, { color: Colors.red }]}>ESP32-Setup ağına bağlı değilsin</Text>
-                  <Text style={styles.connCardSub}>Telefon WiFi ayarlarından ESP32-Setup ağını seç</Text></>
+                  <><Text style={[styles.connCardTitle, { color: Colors.red }]}>{t('setup.connCardDisconnected')}</Text>
+                  <Text style={styles.connCardSub}>{t('setup.connCardDisconnectedSub')}</Text></>
                 )}
               </View>
               {!isChecking && (
@@ -256,19 +259,19 @@ export default function SetupScreen({ onDone, onBack }: Props) {
               <View style={styles.connSteps}>
                 <View style={styles.stepRow}>
                   <Text style={styles.stepNum}>01</Text>
-                  <Text style={styles.stepText}>Telefon WiFi ayarlarını aç</Text>
+                  <Text style={styles.stepText}>{t('setup.connStep1')}</Text>
                 </View>
                 <View style={styles.stepDivider} />
                 <View style={styles.stepRow}>
                   <Text style={styles.stepNum}>02</Text>
                   <Text style={styles.stepText}>
-                    <Text style={styles.stepHighlight}>ESP32-Setup</Text>{' '}ağını seç ve bağlan
+                    <Text style={styles.stepHighlight}>ESP32-Setup</Text>{' '}{t('setup.connStep2')}
                   </Text>
                 </View>
                 <View style={styles.stepDivider} />
                 <View style={styles.stepRow}>
                   <Text style={styles.stepNum}>03</Text>
-                  <Text style={styles.stepText}>Bu uygulamaya geri dön — bağlantı otomatik algılanacak</Text>
+                  <Text style={styles.stepText}>{t('setup.connStep3')}</Text>
                 </View>
               </View>
             )}
@@ -279,11 +282,11 @@ export default function SetupScreen({ onDone, onBack }: Props) {
 
             {/* Bölüm başlığı */}
             <View style={styles.wifiHeader}>
-              <Text style={styles.wifiHeaderLabel}>WiFi AĞINI SEÇ</Text>
+              <Text style={styles.wifiHeaderLabel}>{t('setup.wifiSectionLabel')}</Text>
               {isConnected && (
                 <TouchableOpacity onPress={scanWifiNetworks} disabled={scanningWifi}>
                   <Text style={[styles.wifiRescanText, scanningWifi && { color: Colors.text3 }]}>
-                    {scanningWifi ? 'Taranıyor...' : '↺ Yenile'}
+                    {scanningWifi ? t('setup.wifiScanning') : t('setup.wifiRescan')}
                   </Text>
                 </TouchableOpacity>
               )}
@@ -293,7 +296,7 @@ export default function SetupScreen({ onDone, onBack }: Props) {
             {scanningWifi && (
               <View style={styles.scanningRow}>
                 <ActivityIndicator size="small" color={Colors.cyan} />
-                <Text style={styles.scanningText}>ESP32 ağları tarıyor...</Text>
+                <Text style={styles.scanningText}>{t('setup.wifiScanningNetworks')}</Text>
               </View>
             )}
 
@@ -308,7 +311,7 @@ export default function SetupScreen({ onDone, onBack }: Props) {
             {!isConnected && !scanningWifi && wifiList.length === 0 && !wifiError && (
               <View style={styles.wifiNotConnectedBox}>
                 <Text style={styles.wifiNotConnectedText}>
-                  ESP32-Setup ağına bağlandıktan sonra ağ listesi otomatik yüklenir.
+                  {t('setup.wifiNotConnectedInfo')}
                 </Text>
               </View>
             )}
@@ -326,7 +329,7 @@ export default function SetupScreen({ onDone, onBack }: Props) {
                   <Text style={styles.wifiDropdownHeaderLabel}>
                     {ssid && !showManualInput
                       ? `✓  ${ssid}`
-                      : `${wifiList.length} ağ bulundu — seçmek için bas`}
+                      : `${wifiList.length} ${t('setup.wifiDropdownFound')}`}
                   </Text>
                   <Text style={styles.wifiDropdownChevron}>
                     {showDropdown ? '▲' : '▼'}
@@ -365,7 +368,7 @@ export default function SetupScreen({ onDone, onBack }: Props) {
                         </View>
                         <View style={styles.wifiItemRight}>
                           <Text style={styles.wifiItemBars}>{signalBars(network.rssi)}</Text>
-                          <Text style={styles.wifiItemLabel}>{signalLabel(network.rssi)}</Text>
+                          <Text style={styles.wifiItemLabel}>{signalLabel(network.rssi, t)}</Text>
                         </View>
                       </TouchableOpacity>
                     ))}
@@ -378,7 +381,7 @@ export default function SetupScreen({ onDone, onBack }: Props) {
             {ssid !== '' && !showManualInput && !showDropdown && (
               <View style={styles.selectedNetworkRow}>
                 <View style={styles.selectedNetworkDot} />
-                <Text style={styles.selectedNetworkLabel}>SEÇİLEN:</Text>
+                <Text style={styles.selectedNetworkLabel}>{t('setup.wifiSelected')}</Text>
                 <Text style={styles.selectedNetworkSsid}>{ssid}</Text>
               </View>
             )}
@@ -394,18 +397,18 @@ export default function SetupScreen({ onDone, onBack }: Props) {
               activeOpacity={0.7}
             >
               <Text style={styles.manualToggleText}>
-                {showManualInput ? '▲ Listeden seç' : '✎ Ağ adını elle gir'}
+                {showManualInput ? t('setup.wifiManualToggleOn') : t('setup.wifiManualToggleOff')}
               </Text>
             </TouchableOpacity>
 
             {/* Manuel SSID input */}
             {showManualInput && (
               <View style={styles.fieldGroup}>
-                <Text style={styles.fieldLabel}>WiFi ADI (SSID)</Text>
+                <Text style={styles.fieldLabel}>{t('setup.wifiManualLabel')}</Text>
                 <TextInput
                   value={ssid}
                   onChangeText={setSsid}
-                  placeholder="ağ adını gir"
+                  placeholder={t('setup.wifiManualPlaceholder')}
                   placeholderTextColor={Colors.text3}
                   autoCapitalize="none"
                   autoCorrect={false}
@@ -421,7 +424,7 @@ export default function SetupScreen({ onDone, onBack }: Props) {
           {/* Şifre */}
           <View style={styles.formSection}>
             <View style={styles.fieldGroup}>
-              <Text style={styles.fieldLabel}>ŞİFRE</Text>
+              <Text style={styles.fieldLabel}>{t('setup.passwordSectionLabel')}</Text>
               <TextInput
                 value={password} onChangeText={setPassword}
                 placeholder="••••••••"
@@ -435,18 +438,17 @@ export default function SetupScreen({ onDone, onBack }: Props) {
           {/* PIN Belirleme */}
           <View style={styles.pinSection}>
             <View style={styles.pinHeader}>
-              <Text style={styles.pinTitle}>// GÜVENLİK PIN'İ (OPSİYONEL)</Text>
+              <Text style={styles.pinTitle}>{t('setup.pinSectionTitle')}</Text>
               <Text style={styles.pinDesc}>
-                4-6 haneli bir PIN belirleyebilirsin. PIN belirlerseniz aynı ağdaki
-                başkalarının cihazına erişmesi engellenir. Boş bırakırsan PIN koruması olmaz.
+                {t('setup.pinSectionDesc')}
               </Text>
             </View>
 
             <View style={styles.fieldGroup}>
-              <Text style={styles.fieldLabel}>PIN (4-6 HANE) — OPSİYONEL</Text>
+              <Text style={styles.fieldLabel}>{t('setup.pinFieldLabel')}</Text>
               <TextInput
                 value={pin} onChangeText={(t) => { setPin(t); setPinError(null); }}
-                placeholder="boş bırakabilirsin"
+                placeholder={t('setup.pinFieldPlaceholder')}
                 placeholderTextColor={Colors.text3}
                 keyboardType="numeric" maxLength={6} returnKeyType="next"
                 secureTextEntry
@@ -457,10 +459,10 @@ export default function SetupScreen({ onDone, onBack }: Props) {
             {/* PIN girildiyse tekrar alanı göster */}
             {pin.length > 0 && (
               <View style={styles.fieldGroup}>
-                <Text style={styles.fieldLabel}>PIN TEKRAR</Text>
+                <Text style={styles.fieldLabel}>{t('setup.pinConfirmLabel')}</Text>
                 <TextInput
                   value={pinConfirm} onChangeText={(t) => { setPinConfirm(t); setPinError(null); }}
-                  placeholder="PIN'i tekrar gir"
+                  placeholder={t('setup.pinConfirmPlaceholder')}
                   placeholderTextColor={Colors.text3}
                   keyboardType="numeric" maxLength={6} returnKeyType="done"
                   secureTextEntry onSubmitEditing={setup}
@@ -478,8 +480,8 @@ export default function SetupScreen({ onDone, onBack }: Props) {
             <View style={styles.pinNote}>
               <Text style={styles.pinNoteText}>
                 {pin.length > 0
-                  ? '📌 PIN\'ini not et — cihaz sıfırlanırsa yeniden belirlenir.'
-                  : 'ℹ️  PIN belirlemeden devam edebilirsin. Dilediğin zaman cihazı sıfırlayıp yeniden kurabilirsin.'}
+                  ? t('setup.pinNoteSet')
+                  : t('setup.pinNoteEmpty')}
               </Text>
             </View>
           </View>
@@ -501,7 +503,7 @@ export default function SetupScreen({ onDone, onBack }: Props) {
               style={[styles.primaryBtn, (loading || !ssid.trim()) && styles.primaryBtnDisabled]}
             >
               <Text style={[styles.primaryBtnText, (loading || !ssid.trim()) && styles.primaryBtnTextDisabled]}>
-                {loading ? '[ BAĞLANIYOR... ]' : '[ KURULUMU TAMAMLA ]'}
+                {loading ? `[ ${t('setup.connectingStatus')} ]` : `[ ${t('setup.completeButton')} ]`}
               </Text>
             </TouchableOpacity>
           </View>
@@ -512,7 +514,7 @@ export default function SetupScreen({ onDone, onBack }: Props) {
       <View style={styles.footer}>
         <Text style={styles.footerText}>{ESP32_AP_IP}</Text>
         <View style={styles.footerSep} />
-        <Text style={styles.footerText}>ESP32 Access Point</Text>
+        <Text style={styles.footerText}>{t('setup.footerLabel')}</Text>
       </View>
     </SafeAreaView>
   );

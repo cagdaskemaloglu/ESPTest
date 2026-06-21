@@ -25,6 +25,8 @@ import ColorPicker from '../components/ColorPicker';
 import Model3DViewer from '../components/Model3DViewer';
 import PinScreen from '../components/PinScreen';
 import { useConnectionStatus } from '../hooks/useConnectionStatus';
+import { useLanguage } from '../i18n/LanguageContext';
+import { TranslationKey } from '../i18n/translations';
 import { createAPI } from '../services/apiService';
 import {
   AutomationRule,
@@ -40,9 +42,12 @@ import {
 import { saveBrightness, saveColor, saveDeviceMeta, savePin } from '../services/deviceStorage';
 import { requestNotificationPermission } from '../services/notificationService';
 import {
-  DEFAULT_IDS, EFFECT_META, EffectType,
+  DEFAULT_IDS,
+  EffectType,
   Preset,
-  deletePreset, getPresets
+  deletePreset,
+  getEffectMeta, getPresetDisplayName,
+  getPresets
 } from '../services/presetStorage';
 import { Colors, Fonts, Radius, Spacing } from '../theme/colors';
 import { Channel, Device, channelHasCapability } from '../types/Device';
@@ -67,12 +72,12 @@ type Props = {
 function rgbToHex(r: number, g: number, b: number) {
   return '#' + [r, g, b].map((v) => v.toString(16).padStart(2, '0')).join('');
 }
-function speedLabel(speed: number): string {
-  if (speed < 80)  return 'Çok Yavaş';
-  if (speed < 130) return 'Yavaş';
+function speedLabel(speed: number, t: (key: TranslationKey) => string): string {
+  if (speed < 80)  return t('control.speedVerySlow');
+  if (speed < 130) return t('control.speedSlow');
   if (speed < 180) return 'Normal';
-  if (speed < 220) return 'Hızlı';
-  return 'Çok Hızlı';
+  if (speed < 220) return t('control.speedFast');
+  return t('control.speedVeryFast');
 }
 
 type LocalRule = AutomationRule & { notificationId?: string; triggered?: boolean };
@@ -160,6 +165,7 @@ function ChannelControl({
   pin:             string;
   connStatus:      'online' | 'offline' | 'checking';
 }) {
+  const { t } = useLanguage();
   const ch = channel.id;
   const hasColor   = channelHasCapability(channel, 'color');
   const hasBright  = channelHasCapability(channel, 'brightness');
@@ -263,12 +269,12 @@ function ChannelControl({
   // Toggle off → activePresetId ve activeEffect temizle
   // Toggle on  → efektsiz başla (activePresetId temizle)
   const toggle = async () => {
-    if (connStatus !== 'online') { showError('Cihaz çevrimdışı'); return; }
+    if (connStatus !== 'online') { showError(t('control.errorOffline')); return; }
     const res = await api.get(state.isOn ? '/led/off' : '/led/on', undefined, ch);
     if (res.ok) {
       setActivePresetId(null);
       onStateChange({ isOn: !state.isOn, activeEffect: null });
-    } else if (res.error?.type !== 'unauthorized') showError('Bağlantı hatası');
+    } else if (res.error?.type !== 'unauthorized') showError(t('control.errorConnection'));
   };
 
   const handleSliderChange = (value: number) => {
@@ -310,15 +316,15 @@ function ChannelControl({
         onStateChange({ isOn: true, activeEffect: merged.effect ?? null });
       }
       setActivePresetId(preset.id);
-    } catch { showError('Preset uygulanamadı'); }
+    } catch { showError(t('control.errorPresetFailed')); }
     setApplyingId(null);
   };
 
   const handleDeletePreset = (preset: Preset) => {
     if (DEFAULT_IDS.has(preset.id)) return;
-    Alert.alert('Preseti Sil', `"${preset.name}" silinsin mi?`, [
-      { text: 'İptal', style: 'cancel' },
-      { text: 'Sil', style: 'destructive', onPress: async () => {
+    Alert.alert(t('control.deletePresetTitle'), `"${getPresetDisplayName(preset, t)}"${t('control.deleteRuleConfirm')}`, [
+      { text: t('common.cancel'), style: 'cancel' },
+      { text: t('common.delete'), style: 'destructive', onPress: async () => {
         await deletePreset(preset.id);
         onPresetsReload();
         if (activePresetId === preset.id) setActivePresetId(null);
@@ -335,7 +341,7 @@ function ChannelControl({
       setFadeState({ active: true, remaining: sleepMinutes * 60, progress: 0 });
       setFormMode('none');
     } else {
-      showError('Uyku modu başlatılamadı');
+      showError(t('control.errorSleepFailed'));
     }
   };
 
@@ -369,8 +375,8 @@ function ChannelControl({
   };
 
   const handleDeleteRule = (rule: LocalRule) => {
-    Alert.alert('Kuralı Sil', `"${ruleDescription(rule)}" silinsin mi?`, [
-      { text: 'İptal', style: 'cancel' },
+    Alert.alert(t('control.deleteRuleTitle'), `"${ruleDescription(rule)}"${t('control.deleteRuleConfirm')}`, [
+      { text: t('common.cancel'), style: 'cancel' },
       { text: 'Sil', style: 'destructive', onPress: async () => {
         await deleteRule(device.ip, rule.id, pin, rule.notificationId);
         setRules((prev) => prev.filter((r) => r.id !== rule.id));
@@ -388,7 +394,8 @@ function ChannelControl({
 
   // Sahneler rozetini göster: ışık açık VE aktif preset var VE efekt var
   const showFxBadge = state.isOn && activePresetId !== null && state.activeEffect !== null;
-  const activePrestName = presets.find(p => p.id === activePresetId)?.name ?? null;
+  const activePreset = presets.find(p => p.id === activePresetId) ?? null;
+  const activePrestName = activePreset ? getPresetDisplayName(activePreset, t) : null;
 
   return (
     <View style={cs.channelWrap}>
@@ -404,7 +411,7 @@ function ChannelControl({
       {hasBright && (
         <Animated.View style={[cs.sliderSection, { opacity: state.isOn ? 1 : 0.4 }]}>
           <View style={cs.sliderHeader}>
-            <Text style={cs.sliderLabel}>PARLAKLIK</Text>
+            <Text style={cs.sliderLabel}>{t('control.brightness')}</Text>
             <Text style={[cs.sliderValue, state.isOn && { color: colorCss }]}>{state.brightness}%</Text>
           </View>
           <Slider style={cs.slider} minimumValue={0} maximumValue={100} step={1} value={state.brightness}
@@ -423,8 +430,8 @@ function ChannelControl({
         <View style={cs.accordion}>
           <TouchableOpacity onPress={() => toggleAccordion(setPickerOpen)} activeOpacity={0.8} style={cs.accordionHeader}>
             <View style={cs.accordionLeft}>
-              <Text style={cs.accordionLabel}>RENK</Text>
-              {!state.isOn && <Text style={cs.accordionNote}>açılınca uygulanacak</Text>}
+              <Text style={cs.accordionLabel}>{t('control.color')}</Text>
+              {!state.isOn && <Text style={cs.accordionNote}>{t('control.willApplyOnTurnOn')}</Text>}
             </View>
             <View style={cs.colorPreview}>
               <View style={[cs.colorDot, { backgroundColor: colorCss, shadowColor: colorCss }]} />
@@ -445,9 +452,9 @@ function ChannelControl({
         <View style={cs.accordion}>
           <TouchableOpacity onPress={() => { toggleAccordion(setPresetsOpen); }} activeOpacity={0.8} style={cs.accordionHeader}>
             <View style={cs.accordionLeft}>
-              <Text style={cs.accordionLabel}>SAHNELER</Text>
+              <Text style={cs.accordionLabel}>{t('control.scenes')}</Text>
               {showFxBadge && activePrestName && (
-                <Text style={cs.accordionNote}>{activePrestName} aktif</Text>
+                <Text style={cs.accordionNote}>{activePrestName} {t('control.activeStatusLabel')}</Text>
               )}
             </View>
             {showFxBadge && <View style={cs.fxBadge}><Text style={cs.fxBadgeText}>FX</Text></View>}
@@ -456,7 +463,7 @@ function ChannelControl({
           {presetsOpen && (
             <View style={cs.accordionPanel}>
               <View style={cs.accordionDivider} />
-              <Text style={cs.presetSectionLabel}>STATİK</Text>
+              <Text style={cs.presetSectionLabel}>{t('control.staticLabel')}</Text>
               <View style={cs.presetGrid}>
                 {staticPresets.map((preset) => {
                   const isActive=activePresetId===preset.id;
@@ -466,27 +473,27 @@ function ChannelControl({
                       onLongPress={() => handleDeletePreset(preset)} activeOpacity={0.75}
                       style={[cs.presetCard, isActive && cs.presetCardActive]}>
                       <Text style={cs.presetIcon}>{preset.icon}</Text>
-                      <Text style={[cs.presetName, isActive && { color: Colors.cyan }]}>{preset.name}</Text>
+                      <Text style={[cs.presetName, isActive && { color: Colors.cyan }]}>{getPresetDisplayName(preset, t)}</Text>
                       <View style={[cs.presetSwatch, { backgroundColor: rgb }]} />
                     </TouchableOpacity>
                   );
                 })}
               </View>
-              <Text style={[cs.presetSectionLabel, { marginTop: Spacing.md }]}>EFEKTLER</Text>
+              <Text style={[cs.presetSectionLabel, { marginTop: Spacing.md }]}>{t('control.effectsLabel')}</Text>
               <View style={cs.effectList}>
                 {effectPresets.map((preset) => {
                   const isActive=activePresetId===preset.id;
                   const isExpanded=expandedEffectId===preset.id;
-                  const meta=EFFECT_META[preset.effect as EffectType];
+                  const meta=getEffectMeta(t)[preset.effect as EffectType];
                   return (
                     <View key={preset.id} style={[cs.effectCard, isActive && cs.presetCardActive]}>
                       <TouchableOpacity onPress={() => handleApplyPreset(preset)} activeOpacity={0.75} style={cs.effectCardRow}>
                         <Text style={cs.presetIcon}>{preset.icon}</Text>
                         <View style={{ flex:1 }}>
-                          <Text style={[cs.presetName, isActive && { color: Colors.cyan }]}>{preset.name}</Text>
+                          <Text style={[cs.presetName, isActive && { color: Colors.cyan }]}>{getPresetDisplayName(preset, t)}</Text>
                           <Text style={cs.effectDesc}>{meta?.desc ?? preset.effect}</Text>
                         </View>
-                        <Text style={cs.effectSpeed}>{speedLabel(preset.effectSpeed ?? 128)}</Text>
+                        <Text style={cs.effectSpeed}>{speedLabel(preset.effectSpeed ?? 128, t)}</Text>
                         <TouchableOpacity onPress={() => {
                           setExpandedEffectId(isExpanded?null:preset.id);
                           setEditSpeed(preset.effectSpeed??128); setEditR(preset.effectR??0); setEditG(preset.effectG??150); setEditB(preset.effectB??255);
@@ -497,11 +504,11 @@ function ChannelControl({
                       {isExpanded && (
                         <View style={cs.effectPanel}>
                           <View style={cs.accordionDivider} />
-                          <View style={cs.panelRow}><Text style={cs.panelLabel}>HIZ</Text><Text style={[cs.panelVal,{color:Colors.cyan}]}>{speedLabel(editSpeed)}</Text></View>
+                          <View style={cs.panelRow}><Text style={cs.panelLabel}>{t('control.speedLabel')}</Text><Text style={[cs.panelVal,{color:Colors.cyan}]}>{speedLabel(editSpeed, t)}</Text></View>
                           <Slider style={cs.panelSlider} minimumValue={0} maximumValue={255} step={1} value={editSpeed} onValueChange={(v)=>setEditSpeed(Math.round(v))} minimumTrackTintColor={Colors.cyan} maximumTrackTintColor={Colors.border} thumbTintColor={Colors.cyan} />
                           {meta?.hasColor && (
                             <>
-                              <View style={cs.panelRow}><Text style={cs.panelLabel}>RENK</Text><View style={[cs.panelColorDot,{backgroundColor:`rgb(${editR},${editG},${editB})`}]} /></View>
+                              <View style={cs.panelRow}><Text style={cs.panelLabel}>{t('control.color')}</Text><View style={[cs.panelColorDot,{backgroundColor:`rgb(${editR},${editG},${editB})`}]} /></View>
                               {([['R',editR,setEditR,`rgb(${editR},0,0)`],['G',editG,setEditG,`rgb(0,${editG},0)`],['B',editB,setEditB,`rgb(0,0,${editB})`]] as any[]).map(([l,v,s,c])=>(
                                 <View key={l} style={cs.rgbRow}>
                                   <Text style={cs.rgbLabel}>{l}</Text>
@@ -512,7 +519,7 @@ function ChannelControl({
                             </>
                           )}
                           <TouchableOpacity onPress={() => handleApplyPreset(preset,{effectSpeed:editSpeed,effectR:editR,effectG:editG,effectB:editB})} activeOpacity={0.75} style={cs.applyBtn}>
-                            <Text style={cs.applyBtnText}>[ UYGULA ]</Text>
+                            <Text style={cs.applyBtnText}>{t('control.applyButton')}</Text>
                           </TouchableOpacity>
                         </View>
                       )}
@@ -528,7 +535,7 @@ function ChannelControl({
       <View style={cs.accordion}>
         <TouchableOpacity onPress={() => toggleAccordion(setAutoOpen)} activeOpacity={0.8} style={cs.accordionHeader}>
           <View style={cs.accordionLeft}>
-            <Text style={cs.accordionLabel}>OTOMASYON</Text>
+            <Text style={cs.accordionLabel}>{t('control.automation')}</Text>
             {rules.filter(r=>!(r.type===1&&!r.active)).length>0 && <Text style={cs.accordionNote}>{rules.filter(r=>!(r.type===1&&!r.active)).length} kural</Text>}
           </View>
           {esp32Time && <Text style={cs.esp32Time}>{esp32Time}</Text>}
@@ -538,9 +545,9 @@ function ChannelControl({
           <View style={cs.accordionPanel}>
             <View style={cs.accordionDivider} />
             {rulesLoading ? (
-              <Text style={cs.automationEmpty}>Yükleniyor...</Text>
+              <Text style={cs.automationEmpty}>{t('control.loading')}</Text>
             ) : rules.filter(r=>!(r.type===1&&!r.active)).length===0 && formMode==='none' ? (
-              <Text style={cs.automationEmpty}>Henüz kural yok.</Text>
+              <Text style={cs.automationEmpty}>{t('control.noRulesYet')}</Text>
             ) : (
               rules.filter(r=>!(r.type===1&&!r.active)).map((rule) => (
                 <View key={rule.id} style={cs.ruleRow}>
@@ -548,9 +555,9 @@ function ChannelControl({
                   <View style={{flex:1}}>
                     <Text style={[cs.ruleDesc,!rule.active&&{color:Colors.text3}]}>{ruleDescription(rule)}</Text>
                     <View style={{flexDirection:'row',gap:Spacing.sm,marginTop:2}}>
-                      <View style={cs.ruleTag}><Text style={cs.ruleTagText}>{rule.type===0?'GÜNLİK':'TEK'}</Text></View>
+                      <View style={cs.ruleTag}><Text style={cs.ruleTagText}>{rule.type===0?t('control.ruleDaily'):t('control.ruleOnce')}</Text></View>
                       <View style={[cs.ruleTag,{backgroundColor:rule.action===1?Colors.cyanAlpha:Colors.redAlpha}]}>
-                        <Text style={[cs.ruleTagText,{color:rule.action===1?Colors.cyan:Colors.red}]}>{rule.action===1?'AÇ':'KAPAT'}</Text>
+                        <Text style={[cs.ruleTagText,{color:rule.action===1?Colors.cyan:Colors.red}]}>{rule.action===1?t('control.ruleOn'):t('control.ruleOff')}</Text>
                       </View>
                     </View>
                   </View>
@@ -558,15 +565,15 @@ function ChannelControl({
                     <Text style={[cs.ruleBtnText,{color:rule.active?Colors.cyan:Colors.text3}]}>{rule.active?'AKT':'PAS'}</Text>
                   </TouchableOpacity>
                   <TouchableOpacity onPress={()=>handleDeleteRule(rule)} style={cs.ruleBtn}>
-                    <Text style={[cs.ruleBtnText,{color:Colors.red}]}>SİL</Text>
+                    <Text style={[cs.ruleBtnText,{color:Colors.red}]}>{t('control.deleteButton')}</Text>
                   </TouchableOpacity>
                 </View>
               ))
             )}
             {formMode==='none' && (
               <View style={cs.addRuleRow}>
-                <TouchableOpacity onPress={()=>setFormMode('daily')} activeOpacity={0.75} style={cs.addRuleBtn}><Text style={cs.addRuleBtnText}>+ Günlük</Text></TouchableOpacity>
-                <TouchableOpacity onPress={()=>setFormMode('countdown')} activeOpacity={0.75} style={cs.addRuleBtn}><Text style={cs.addRuleBtnText}>+ Geri Sayım</Text></TouchableOpacity>
+                <TouchableOpacity onPress={()=>setFormMode('daily')} activeOpacity={0.75} style={cs.addRuleBtn}><Text style={cs.addRuleBtnText}>{t('control.dailyRule')}</Text></TouchableOpacity>
+                <TouchableOpacity onPress={()=>setFormMode('countdown')} activeOpacity={0.75} style={cs.addRuleBtn}><Text style={cs.addRuleBtnText}>{t('control.countdownRule')}</Text></TouchableOpacity>
               </View>
             )}
 
@@ -577,9 +584,9 @@ function ChannelControl({
                   /* Aktif fade göstergesi */
                   <View style={cs.fadeActiveCard}>
                     <View style={cs.fadeActiveHeader}>
-                      <Text style={cs.fadeActiveTitle}>🌙 UYKU MODU AKTİF</Text>
+                      <Text style={cs.fadeActiveTitle}>{t('control.fadeActiveTitle')}</Text>
                       <TouchableOpacity onPress={handleCancelFade} style={cs.fadeCancelBtn}>
-                        <Text style={cs.fadeCancelText}>İPTAL</Text>
+                        <Text style={cs.fadeCancelText}>{t('control.fadeCancelButton')}</Text>
                       </TouchableOpacity>
                     </View>
                     <View style={cs.fadeProgressTrack}>
@@ -587,8 +594,8 @@ function ChannelControl({
                     </View>
                     <Text style={cs.fadeRemaining}>
                       {fadeState.remaining !== undefined
-                        ? `${Math.floor(fadeState.remaining / 60)} dk ${fadeState.remaining % 60} sn kaldı`
-                        : 'Hesaplanıyor...'}
+                        ? `${Math.floor(fadeState.remaining / 60)} ${t('control.fadeTimeRemaining')} ${fadeState.remaining % 60} ${t('scan.secondsUnit')}`
+                        : t('control.fadeCalculating')}
                     </Text>
                   </View>
                 ) : (
@@ -597,7 +604,7 @@ function ChannelControl({
                     activeOpacity={0.75}
                     style={[cs.addRuleBtn, { borderColor: Colors.purple }]}
                   >
-                    <Text style={[cs.addRuleBtnText, { color: Colors.purple }]}>🌙 Uyku Modu</Text>
+                    <Text style={[cs.addRuleBtnText, { color: Colors.purple }]}>{t('control.sleepModeButton')}</Text>
                   </TouchableOpacity>
                 )}
               </View>
@@ -614,11 +621,11 @@ function ChannelControl({
               <>
                 <Text style={cs.ruleFormTitle}>// UYKU MODU</Text>
                 <Text style={cs.sleepDesc}>
-                  Işık seçilen süre içinde yavaşça karararak kapanır.
+                  {t('control.sleepModeDesc')}
                 </Text>
                 <View style={cs.timePickerRow}>
                   <NumberPicker
-                    label="DAKİKA"
+                    label={t('control.minutesLabel')}
                     value={sleepMinutes}
                     min={1}
                     max={180}
@@ -633,26 +640,26 @@ function ChannelControl({
                     style={[cs.saveRuleBtn, { borderColor: Colors.purple, backgroundColor: Colors.purpleAlpha }, startingFade && { opacity: 0.5 }]}
                   >
                     <Text style={[cs.saveRuleBtnText, { color: Colors.purple }]}>
-                      {startingFade ? 'BAŞLATILIYOR...' : '🌙 [ BAŞLAT ]'}
+                      {startingFade ? t('control.sleepStarting') : `🌙 ${t('control.sleepStart')}`}
                     </Text>
                   </TouchableOpacity>
                   <TouchableOpacity onPress={()=>setFormMode('none')} style={cs.cancelRuleBtn}>
-                    <Text style={cs.cancelRuleBtnText}>İPTAL</Text>
+                    <Text style={cs.cancelRuleBtnText}>{t('control.sleepCancel')}</Text>
                   </TouchableOpacity>
                 </View>
               </>
             ) : (
               <>
-                <Text style={cs.ruleFormTitle}>{formMode==='daily'?'// GÜNLİK ZAMANLAYICI':'// GERİ SAYIM'}</Text>
+                <Text style={cs.ruleFormTitle}>{formMode==='daily'?t('control.dailyTimerTitle'):t('control.countdownTitle')}</Text>
                 <View style={cs.timePickerRow}>
                   <NumberPicker label="SAAT" value={formMode==='daily'?dailyHour:cdHour} min={0} max={23} onChange={formMode==='daily'?setDailyHour:setCdHour} />
                   <Text style={cs.timeSep}>:</Text>
-                  <NumberPicker label="DAKİKA" value={formMode==='daily'?dailyMinute:cdMinute} min={0} max={59} onChange={formMode==='daily'?setDailyMinute:setCdMinute} />
+                  <NumberPicker label={t('control.minutesLabel')} value={formMode==='daily'?dailyMinute:cdMinute} min={0} max={59} onChange={formMode==='daily'?setDailyMinute:setCdMinute} />
                 </View>
                 <View style={cs.actionRow}>
                   <TouchableOpacity onPress={()=>formMode==='daily'?setDailyAction(1):setCdAction(1)} activeOpacity={0.75}
                     style={[cs.actionChoice,(formMode==='daily'?dailyAction:cdAction)===1&&cs.actionChoiceOn]}>
-                    <Text style={[cs.actionChoiceText,(formMode==='daily'?dailyAction:cdAction)===1&&{color:Colors.cyan}]}>AÇ</Text>
+                    <Text style={[cs.actionChoiceText,(formMode==='daily'?dailyAction:cdAction)===1&&{color:Colors.cyan}]}>{t('control.turnOnLabel')}</Text>
                   </TouchableOpacity>
                   <TouchableOpacity onPress={()=>formMode==='daily'?setDailyAction(0):setCdAction(0)} activeOpacity={0.75}
                     style={[cs.actionChoice,(formMode==='daily'?dailyAction:cdAction)===0&&cs.actionChoiceOff]}>
@@ -663,10 +670,10 @@ function ChannelControl({
                   <TouchableOpacity onPress={formMode==='daily'?handleAddDaily:handleAddCountdown}
                     disabled={savingRule||(formMode==='countdown'&&cdHour===0&&cdMinute===0)} activeOpacity={0.75}
                     style={[cs.saveRuleBtn,(savingRule||(formMode==='countdown'&&cdHour===0&&cdMinute===0))&&{opacity:0.5}]}>
-                    <Text style={cs.saveRuleBtnText}>{savingRule?'KAYDEDİLİYOR...':'[ KAYDET ]'}</Text>
+                    <Text style={cs.saveRuleBtnText}>{savingRule?t('control.savingButton'):t('control.saveButton')}</Text>
                   </TouchableOpacity>
                   <TouchableOpacity onPress={()=>setFormMode('none')} style={cs.cancelRuleBtn}>
-                    <Text style={cs.cancelRuleBtnText}>İPTAL</Text>
+                    <Text style={cs.cancelRuleBtnText}>{t('control.sleepCancel')}</Text>
                   </TouchableOpacity>
                 </View>
               </>
@@ -680,6 +687,7 @@ function ChannelControl({
 
 // ── Ana ControlScreen ─────────────────────────────────────────────────────────
 export default function ControlScreen({ device, devices, onOpenList, onAddDevice, onDeviceChange }: Props) {
+  const { t } = useLanguage();
   const [currentPin,     setCurrentPin]     = useState(device.pin ?? '');
   const [showPinScreen,  setShowPinScreen]  = useState(false);
   const [pinScreenMode,  setPinScreenMode]  = useState<'enter'|'setup'>('enter');
@@ -712,7 +720,7 @@ export default function ControlScreen({ device, devices, onOpenList, onAddDevice
     });
   };
 
-  const safeChannels = device.channels ?? [{ id: 0, name: 'Şerit', capabilities: device.capabilities ?? ['on_off','brightness','color','effects'], leds: device.leds }];
+  const safeChannels = device.channels ?? [{ id: 0, name: t('control.stripLabel'), capabilities: device.capabilities ?? ['on_off','brightness','color','effects'], leds: device.leds }];
   const [viewerWidth, setViewerWidth] = useState(CARD_W);
   const viewerHeight = Math.round(viewerWidth * 1.1);
 
@@ -807,8 +815,8 @@ export default function ControlScreen({ device, devices, onOpenList, onAddDevice
     if (res.ok) {
       setCurrentPin(enteredPin); await savePin(device.id, enteredPin);
       setShowPinScreen(false); setPinError(null);
-    } else if (res.error?.type === 'unauthorized') { setPinError('PIN hatalı.'); }
-    else { setPinError('Bağlantı hatası.'); }
+    } else if (res.error?.type === 'unauthorized') { setPinError(t('control.pinErrorWrong')); }
+    else { setPinError(t('control.pinErrorConnection')); }
     setPinLoading(false);
   };
 
@@ -830,7 +838,7 @@ export default function ControlScreen({ device, devices, onOpenList, onAddDevice
 
       <View style={styles.header}>
         <TouchableOpacity onPress={onOpenList} style={styles.deviceNameBtn}>
-          <Text style={styles.deviceNameLabel}>AKTİF CİHAZ</Text>
+          <Text style={styles.deviceNameLabel}>{t('control.activeDevice')}</Text>
           <Text style={styles.deviceName} numberOfLines={1}>{device.name} ›</Text>
         </TouchableOpacity>
         <View style={styles.headerRight}>
@@ -845,11 +853,11 @@ export default function ControlScreen({ device, devices, onOpenList, onAddDevice
       </View>
       <View style={styles.headerDivider} />
       <View style={styles.ipRow}>
-        <Text style={styles.ipLabel}>BAĞLANTI //</Text>
+        <Text style={styles.ipLabel}>{t('control.connection')}</Text>
         <Text style={styles.ipValue}>{device.ip}</Text>
         <Text style={styles.ipLabel}> · </Text>
         <Text style={[styles.ipValue,{color:device.type==='ws2812b'?Colors.purple:device.type==='single_led'?Colors.amber:Colors.text3}]}>
-          {device.type==='ws2812b'?`${safeChannels.length} KANAL`:device.type==='single_led'?'TEK LED':device.type==='relay'?'RÖLE':'?'}
+          {device.type==='ws2812b'?`${safeChannels.length} ${t('control.multiChannel')}`:device.type==='single_led'?t('control.singleLed'):device.type==='relay'?t('control.relay'):'?'}
         </Text>
       </View>
 
@@ -900,12 +908,12 @@ export default function ControlScreen({ device, devices, onOpenList, onAddDevice
                     : Colors.border2,
                 }]} />
                 <Text style={[styles.modelStatusText, { color: channelStates.some((s) => s.isOn) ? Colors.cyan : Colors.text3 }]}>
-                  {channelStates.some((s) => s.isOn) ? 'AÇIK' : 'KAPALI'}
+                  {channelStates.some((s) => s.isOn) ? t('control.modelOn') : t('control.modelOff')}
                 </Text>
               </View>
               <View style={styles.modelHint} pointerEvents="none">
                 <Text style={styles.modelHintText}>
-                  {isMultiChannel ? 'sürükle · döndür' : 'bas · aç/kapat  ·  sürükle · döndür'}
+                  {isMultiChannel ? t('control.dragRotateMulti') : t('control.dragRotateSingle')}
                 </Text>
               </View>
             </TouchableOpacity>
@@ -934,7 +942,7 @@ export default function ControlScreen({ device, devices, onOpenList, onAddDevice
                     <View style={styles.powerBtnText}>
                       {isMultiChannel && <Text style={[styles.powerBtnChannel, isOn && { color: colorRgb }]}>{channel.name.toUpperCase()}</Text>}
                       <Text style={[styles.powerBtnState, isOn && { color: colorRgb }]}>
-                        {isOn ? (s.activeEffect ? s.activeEffect.toUpperCase() : 'AÇIK') : 'KAPALI'}
+                        {isOn ? (s.activeEffect ? s.activeEffect.toUpperCase() : t('control.modelOn')) : t('control.modelOff')}
                       </Text>
                     </View>
                     {isOn && <View style={[styles.powerBtnColorDot, { backgroundColor: colorRgb, shadowColor: colorRgb, shadowOpacity: 0.8, shadowRadius: 6, shadowOffset: { width: 0, height: 0 } }]} />}

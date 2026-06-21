@@ -23,6 +23,8 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { useLanguage } from '../i18n/LanguageContext';
+import { TranslationKey } from '../i18n/translations';
 import { Colors, Fonts, Radius, Spacing } from '../theme/colors';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -39,84 +41,61 @@ type Slide = {
   note?:    string;
 };
 
-const SLIDES: Slide[] = [
-  {
-    id:      'welcome',
-    eyebrow: '// HOŞ GELDİN',
-    title:   'Akıllı Işık\nKontrolü',
-    icon:    '💡',
-    desc:
-      'Torva Smart Light ile ESP32 tabanlı LED şeritlerini ve ' +
-      'ampullerini telefonundan yönet. Renk, parlaklık, zamanlayıcı ' +
-      've efektler tek uygulamada.',
-  },
-  {
-    id:      'hardware',
-    eyebrow: '// DONANIM',
-    title:   'ESP32\'ni\nHazırla',
-    icon:    '🔌',
-    desc:    'Başlamadan önce ESP32 cihazının hazır olduğundan emin ol.',
-    steps: [
-      {
-        num:  '01',
-        text: 'ESP32\'yi güç kaynağına bağla',
-      },
-      {
-        num:       '02',
-        text:      'Eğer daha önce WiFi kurulmadıysa ',
-        highlight: 'ESP32-Setup',
-      },
-      {
-        num:  '03',
-        text: 'adlı WiFi ağı görünür — bu normal, kurulum adımında bu ağa bağlanacaksın',
-      },
-    ],
-    note: 'Daha önce kurulum yaptıysan ESP32 doğrudan ev WiFi\'ına bağlanır.',
-  },
-  {
-    id:      'setup',
-    eyebrow: '// KURULUM',
-    title:   'İki Yol\nVar',
-    icon:    '🗺️',
-    desc:    'Cihazına göre doğru yolu seç:',
-    steps: [
-      {
-        num:       '→',
-        text:      'İlk kez kuruyorsan: ',
-        highlight: 'Kurulum Başlat',
-      },
-      {
-        num:  '',
-        text: 'ESP32\'yi ev WiFi\'ına tanıtmak için gerekli. Bir kez yapılır.',
-      },
-      {
-        num:       '→',
-        text:      'Daha önce kurulduysa: ',
-        highlight: 'Cihaz Ara',
-      },
-      {
-        num:  '',
-        text: 'Uygulama ağı otomatik tarar ve cihazı bulur.',
-      },
-    ],
-    note: 'Emin değilsen "Cihaz Ara" ile başla — cihaz bulunamazsa kuruluma geç.',
-  },
-  {
-    id:      'ready',
-    eyebrow: '// HAZIR',
-    title:   'Her Şey\nHazır!',
-    icon:    '🚀',
-    desc:    'Artık ışıklarını kontrol etmeye başlayabilirsin.',
-    steps: [
-      { num: '🎨', text: 'Renk ve parlaklık kontrolü' },
-      { num: '⏱',  text: 'Zamanlayıcı ve otomasyon kuralları' },
-      { num: '✨', text: 'Efekt ve sahne presetleri' },
-      { num: '📱', text: 'Birden fazla cihaz yönetimi' },
-    ],
-  },
-];
+function getSlides(t: (key: TranslationKey) => string): Slide[] {
+  return [
+    {
+      id:      'welcome',
+      eyebrow: t('onboarding.welcome.eyebrow'),
+      title:   t('onboarding.welcome.title'),
+      icon:    '\ud83d\udca1',
+      desc:    t('onboarding.welcome.desc'),
+    },
+    {
+      id:      'hardware',
+      eyebrow: t('onboarding.hardware.eyebrow'),
+      title:   t('onboarding.hardware.title'),
+      icon:    '\ud83d\udd0c',
+      desc:    t('onboarding.hardware.desc'),
+      steps: [
+        { num: '01', text: t('onboarding.hardware.step1') },
+        { num: '02', text: t('onboarding.hardware.step2pre'), highlight: t('onboarding.hardware.step2highlight') },
+        { num: '03', text: t('onboarding.hardware.step3') },
+      ],
+      note: t('onboarding.hardware.note'),
+    },
+    {
+      id:      'setup',
+      eyebrow: t('onboarding.setup.eyebrow'),
+      title:   t('onboarding.setup.title'),
+      icon:    '\ud83d\uddfa\ufe0f',
+      desc:    t('onboarding.setup.desc'),
+      steps: [
+        { num: '\u2192', text: t('onboarding.setup.step1pre'), highlight: t('onboarding.setup.step1highlight') },
+        { num: '',  text: t('onboarding.setup.step1desc') },
+        { num: '\u2192', text: t('onboarding.setup.step2pre'), highlight: t('onboarding.setup.step2highlight') },
+        { num: '',  text: t('onboarding.setup.step2desc') },
+      ],
+      note: t('onboarding.setup.note'),
+    },
+    {
+      id:      'ready',
+      eyebrow: t('onboarding.ready.eyebrow'),
+      title:   t('onboarding.ready.title'),
+      icon:    '\ud83d\ude80',
+      desc:    t('onboarding.ready.desc'),
+      steps: [
+        { num: '\ud83c\udfa8', text: t('onboarding.ready.feature1') },
+        { num: '\u23f1',  text: t('onboarding.ready.feature2') },
+        { num: '\u2728', text: t('onboarding.ready.feature3') },
+        { num: '\ud83d\udcf1', text: t('onboarding.ready.feature4') },
+      ],
+    },
+  ];
+}
 
 export default function OnboardingScreen({ onDone }: Props) {
+  const { t } = useLanguage();
+  const SLIDES = getSlides(t);
   const [currentIndex, setCurrentIndex] = useState(0);
   const scrollRef = useRef<ScrollView>(null);
   const dotAnim   = useRef(SLIDES.map((_, i) => new Animated.Value(i === 0 ? 1 : 0))).current;
@@ -163,7 +142,7 @@ export default function OnboardingScreen({ onDone }: Props) {
       <View style={styles.topBar}>
         {!isLast ? (
           <TouchableOpacity onPress={onDone} style={styles.skipBtn}>
-            <Text style={styles.skipText}>ATLA</Text>
+            <Text style={styles.skipText}>{t('onboarding.skip')}</Text>
           </TouchableOpacity>
         ) : (
           <View style={styles.skipBtn} />
@@ -260,7 +239,7 @@ export default function OnboardingScreen({ onDone }: Props) {
           style={[styles.nextBtn, isLast && styles.nextBtnLast]}
         >
           <Text style={[styles.nextBtnText, isLast && styles.nextBtnTextLast]}>
-            {isLast ? '[ BAŞLAYALIM ]' : '[ İLERİ ]'}
+            {isLast ? `[ ${t('onboarding.start').toUpperCase()} ]` : `[ ${t('onboarding.next').toUpperCase()} ]`}
           </Text>
         </TouchableOpacity>
 
