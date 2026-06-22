@@ -7,9 +7,11 @@ import * as ExpoSplash from 'expo-splash-screen';
 import { useCallback, useEffect, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 
+import ErrorBoundary from './components/ErrorBoundary';
 import SplashAnimation from './components/SplashAnimation';
 import ControlScreen from './screens/ControlScreen';
 import DeviceListScreen from './screens/DeviceListScreen';
+import LegalScreen from './screens/LegalScreen';
 import OnboardingScreen from './screens/OnboardingScreen';
 import ScanScreen from './screens/ScanScreen';
 import SetupScreen from './screens/SetupScreen';
@@ -24,14 +26,18 @@ import { Device } from './types/Device';
 
 ExpoSplash.preventAutoHideAsync();
 
-type Step = 'loading' | 'onboarding' | 'start' | 'setup' | 'scan' | 'control' | 'deviceList';
+type Step = 'loading' | 'onboarding' | 'start' | 'setup' | 'scan' | 'control' | 'deviceList' | 'legal';
 
-// Üst seviye App — sadece LanguageProvider ile sarmalar.
+// Üst seviye App — LanguageProvider ile sarmalar.
 // Asıl mantık AppInner içinde, çünkü useLanguage() Provider altında çağrılmalı.
+// ErrorBoundary, LanguageProvider'ın İÇİNDE konumlanır: böylece bir render
+// hatası yakalandığında bile context.t() üzerinden doğru dilde mesaj gösterilebilir.
 export default function App() {
   return (
     <LanguageProvider>
-      <AppInner />
+      <ErrorBoundary>
+        <AppInner />
+      </ErrorBoundary>
     </LanguageProvider>
   );
 }
@@ -122,7 +128,11 @@ function AppInner() {
         onSetup={() => setStep('setup')}
         onBack={() => setStep('control')}
         onStart={() => setStep('start')}
+        onLegal={() => setStep('legal')}
       />
+    );
+    if (step === 'legal') return (
+      <LegalScreen onBack={() => setStep(activeDevice ? 'deviceList' : 'start')} />
     );
     return null;
   };

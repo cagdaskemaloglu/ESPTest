@@ -41,6 +41,7 @@ type Props = {
   onSetup:   () => void;
   onBack:    () => void;
   onStart:   () => void;
+  onLegal:   () => void;
 };
 
 type OTAStatus = 'idle' | 'checking' | 'available' | 'updating' | 'up_to_date' | 'error';
@@ -60,6 +61,7 @@ export default function DeviceListScreen({
   onSetup,
   onBack,
   onStart,
+  onLegal,
 }: Props) {
   const { t, language, setLanguage } = useLanguage();
   const [devices, setDevices]           = useState<Device[]>([]);
@@ -463,6 +465,21 @@ export default function DeviceListScreen({
           </View>
         </TouchableOpacity>
       </Modal>
+
+      {/* Yasal / Legal butonu */}
+      <TouchableOpacity
+        onPress={onLegal}
+        style={styles.langRow}
+        activeOpacity={0.75}
+      >
+        <Text style={styles.langLabel}>{t('legal.title').toUpperCase()}</Text>
+        <View style={styles.langValue}>
+          <Text style={styles.langValueText}>
+            {t('legal.privacy')} · {t('legal.terms')}
+          </Text>
+          <Text style={styles.chevronRight}>›</Text>
+        </View>
+      </TouchableOpacity>
 
       {/* Liste */}
       <FlatList

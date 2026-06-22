@@ -190,7 +190,13 @@ export type TranslationKey =
   | 'presets.dynamicEffectsLabel'
 
   // Settings / Dil
-  | 'settings.language' | 'settings.selectLanguage';
+  | 'settings.language' | 'settings.selectLanguage'
+  | 'legal.title' | 'legal.privacy' | 'legal.terms'
+  | 'legal.privacyTitle' | 'legal.termsTitle'
+  | 'legal.lastUpdated'
+  // ErrorBoundary
+  | 'errorBoundary.title' | 'errorBoundary.desc'
+  | 'errorBoundary.restartButton' | 'errorBoundary.detailsLabel';
 
 export const translations: Record<Language, Partial<Record<TranslationKey, string>>> = {
   tr: {
@@ -556,6 +562,16 @@ export const translations: Record<Language, Partial<Record<TranslationKey, strin
 
     'settings.language':       'Dil',
     'settings.selectLanguage': 'Dil Seçin',
+    'legal.title':       'Yasal',
+    'legal.privacy':     'Gizlilik Politikası',
+    'legal.terms':       'Kullanım Koşulları',
+    'legal.privacyTitle':'Gizlilik Politikası',
+    'legal.termsTitle':  'Kullanım Koşulları',
+    'legal.lastUpdated': 'Son güncelleme: Haziran 2026',
+    'errorBoundary.title':          'Bir şeyler ters gitti',
+    'errorBoundary.desc':           'Uygulama beklenmedik bir hatayla karşılaştı. Yeniden başlatmayı dene; sorun devam ederse cihaz listesine dönüp tekrar bağlanmayı dene.',
+    'errorBoundary.restartButton':  '[ Yeniden Başlat ]',
+    'errorBoundary.detailsLabel':   'Hata detayı',
   },
   en: {
     'common.cancel':    'Cancel',
@@ -920,5 +936,15 @@ export const translations: Record<Language, Partial<Record<TranslationKey, strin
 
     'settings.language':       'Language',
     'settings.selectLanguage': 'Select Language',
+    'legal.title':       'Legal',
+    'legal.privacy':     'Privacy Policy',
+    'legal.terms':       'Terms of Use',
+    'legal.privacyTitle':'Privacy Policy',
+    'legal.termsTitle':  'Terms of Use',
+    'legal.lastUpdated': 'Last updated: June 2026',
+    'errorBoundary.title':          'Something went wrong',
+    'errorBoundary.desc':           'The app ran into an unexpected error. Try restarting; if the problem persists, return to the device list and try reconnecting.',
+    'errorBoundary.restartButton':  '[ Restart ]',
+    'errorBoundary.detailsLabel':   'Error details',
   },
 };

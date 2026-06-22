@@ -32,7 +32,9 @@ type LanguageContextValue = {
   ready:       boolean; // AsyncStorage + cihaz dili okuma tamamlandı mı
 };
 
-const LanguageContext = createContext<LanguageContextValue | null>(null);
+// Context objesinin kendisi export edilir — class component'ler (örn. ErrorBoundary)
+// hook kullanamadığı için static contextType = LanguageContext ile bağlanabilsin.
+export const LanguageContext = createContext<LanguageContextValue | null>(null);
 
 function detectDeviceLanguage(): Language {
   try {
