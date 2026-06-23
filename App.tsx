@@ -11,11 +11,13 @@ import ErrorBoundary from './components/ErrorBoundary';
 import SplashAnimation from './components/SplashAnimation';
 import ControlScreen from './screens/ControlScreen';
 import DeviceListScreen from './screens/DeviceListScreen';
+import GroupScreen from './screens/GroupScreen';
 import LegalScreen from './screens/LegalScreen';
 import OnboardingScreen from './screens/OnboardingScreen';
 import ScanScreen from './screens/ScanScreen';
 import SetupScreen from './screens/SetupScreen';
 import StartScreen from './screens/StartScreen';
+import StatsScreen from './screens/StatsScreen';
 
 import { LanguageProvider, useLanguage } from './i18n/LanguageContext';
 import { getDevices, getLastDeviceId, saveLastDeviceId } from './services/deviceStorage';
@@ -26,7 +28,7 @@ import { Device } from './types/Device';
 
 ExpoSplash.preventAutoHideAsync();
 
-type Step = 'loading' | 'onboarding' | 'start' | 'setup' | 'scan' | 'control' | 'deviceList' | 'legal';
+type Step = 'loading' | 'onboarding' | 'start' | 'setup' | 'scan' | 'control' | 'deviceList' | 'legal' | 'groups' | 'stats';
 
 // Üst seviye App — LanguageProvider ile sarmalar.
 // Asıl mantık AppInner içinde, çünkü useLanguage() Provider altında çağrılmalı.
@@ -50,6 +52,7 @@ function AppInner() {
   const [appReady, setAppReady]         = useState(false);
   const [splashDone, setSplashDone]     = useState(false);
   const [scanDelay, setScanDelay]       = useState(0);
+  const [syncKey, setSyncKey]           = useState(0);
 
   useEffect(() => { initApp(); }, []);
 
@@ -87,7 +90,13 @@ function AppInner() {
     await saveLastDeviceId(device.id);
     const updated = await getDevices();
     setDevices(updated);
+    goToControl();
+  };
+
+  // Overlay ekranlardan control'e her dönüşte LED durumunu yenile
+  const goToControl = () => {
     setStep('control');
+    setSyncKey((k) => k + 1);
   };
 
   // ── Early returns ──────────────────────────────────────────────────────────
@@ -103,7 +112,7 @@ function AppInner() {
       <StartScreen
         onSetup={() => setStep('setup')}
         onScan={() => { setScanDelay(0); setStep('scan'); }}
-        onBack={devices.length > 0 ? () => setStep('control') : undefined}
+        onBack={devices.length > 0 ? () => goToControl() : undefined}
       />
     );
     if (step === 'setup') return (
@@ -116,7 +125,7 @@ function AppInner() {
       <ScanScreen
         onDeviceAdded={(device)    => selectDevice(device)}
         onDeviceSelected={(device) => selectDevice(device)}
-        onBack={() => activeDevice ? setStep('control') : setStep('start')}
+        onBack={() => activeDevice ? goToControl() : setStep('start')}
         initialDelay={scanDelay}
       />
     );
@@ -126,13 +135,25 @@ function AppInner() {
         onSelect={(device) => selectDevice(device)}
         onAddNew={() => { setScanDelay(0); setStep('scan'); }}
         onSetup={() => setStep('setup')}
-        onBack={() => setStep('control')}
+        onBack={() => goToControl()}
         onStart={() => setStep('start')}
         onLegal={() => setStep('legal')}
       />
     );
     if (step === 'legal') return (
       <LegalScreen onBack={() => setStep(activeDevice ? 'deviceList' : 'start')} />
+    );
+    if (step === 'groups' && activeDevice) return (
+      <GroupScreen
+        devices={devices}
+        onBack={() => goToControl()}
+      />
+    );
+    if (step === 'stats' && activeDevice) return (
+      <StatsScreen
+        devices={devices}
+        onBack={() => goToControl()}
+      />
     );
     return null;
   };
@@ -154,6 +175,9 @@ function AppInner() {
             onOpenList={()           => setStep('deviceList')}
             onAddDevice={()          => setStep('start')}
             onDeviceChange={(device) => selectDevice(device)}
+            onOpenGroups={()         => setStep('groups')}
+            onOpenStats={()          => setStep('stats')}
+            syncKey={syncKey}
           />
         </View>
       )}

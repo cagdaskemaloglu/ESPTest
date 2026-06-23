@@ -67,6 +67,9 @@ type Props = {
   onOpenList:     () => void;
   onAddDevice:    () => void;
   onDeviceChange: (device: Device) => void;
+  onOpenGroups:   () => void;
+  onOpenStats:    () => void;
+  syncKey:        number; // her artışta syncAllChannels tetiklenir
 };
 
 function rgbToHex(r: number, g: number, b: number) {
@@ -214,10 +217,14 @@ function ChannelControl({
     errorTimer.current = setTimeout(() => setErrorMsg(null), 3000);
   };
 
-  // Cihaz değişince activePresetId sıfırla
+  // Cihaz değişince tüm geçici state'leri sıfırla
   useEffect(() => {
     setActivePresetId(null);
     setFadeState(null);
+    setFormMode('none');
+    setEditSpeed(128);
+    setEditR(0); setEditG(150); setEditB(255);
+    setSleepMinutes(30);
     if (fadeTimerRef.current) clearInterval(fadeTimerRef.current);
   }, [device.id]);
 
@@ -333,7 +340,7 @@ function ChannelControl({
   };
 
   const handleStartFade = async () => {
-    if (sleepMinutes <= 0) { showError('En az 1 dakika gir'); return; }
+    if (sleepMinutes <= 0) { showError(t('control.errorMinSleep')); return; }
     setStartingFade(true);
     const ok = await startFade(device.ip, pin, sleepMinutes * 60);
     setStartingFade(false);
@@ -358,12 +365,12 @@ function ChannelControl({
     if (result) {
       setRules((prev) => [...prev, { id: result.id, active: true, type: 0, hour: dailyHour, minute: dailyMinute, action: dailyAction, triggerAt: 0, triggered: false, channel: ch, notificationId: result.notificationId }]);
       setFormMode('none');
-    } else showError('Kural eklenemedi');
+    } else showError(t('control.errorRuleFailed'));
   };
 
   const handleAddCountdown = async () => {
     const total = cdHour*3600+cdMinute*60;
-    if (total===0) { showError('En az 1 dakika gir'); return; }
+    if (total===0) { showError(t('control.errorMinRule')); return; }
     setSavingRule(true);
     const result = await addCountdownRule(device.ip, { countdown: total, action: cdAction, deviceName: `${device.name} - ${channel.name}`, pin, channel: ch });
     setSavingRule(false);
@@ -371,7 +378,7 @@ function ChannelControl({
       const triggerAt = Math.floor(Date.now()/1000)+total;
       setRules((prev) => [...prev, { id: result.id, active: true, type: 1, hour: 0, minute: 0, action: cdAction, triggerAt, triggered: false, channel: ch, notificationId: result.notificationId }]);
       setFormMode('none');
-    } else showError('Kural eklenemedi');
+    } else showError(t('control.errorRuleFailed'));
   };
 
   const handleDeleteRule = (rule: LocalRule) => {
@@ -686,7 +693,7 @@ function ChannelControl({
 }
 
 // ── Ana ControlScreen ─────────────────────────────────────────────────────────
-export default function ControlScreen({ device, devices, onOpenList, onAddDevice, onDeviceChange }: Props) {
+export default function ControlScreen({ device, devices, onOpenList, onAddDevice, onDeviceChange, onOpenGroups, onOpenStats, syncKey }: Props) {
   const { t } = useLanguage();
   const [currentPin,     setCurrentPin]     = useState(device.pin ?? '');
   const [showPinScreen,  setShowPinScreen]  = useState(false);
@@ -747,6 +754,7 @@ export default function ControlScreen({ device, devices, onOpenList, onAddDevice
   }, [connStatus]);
 
   useEffect(() => {
+    setCurrentPin(device.pin ?? '');
     loadPresets();
     requestNotificationPermission();
     syncAllChannels();
@@ -796,8 +804,14 @@ export default function ControlScreen({ device, devices, onOpenList, onAddDevice
     }
   };
 
+  // syncKey her değişince (overlay ekranlardan geri dönünce) LED durumunu güncelle
+  useEffect(() => {
+    if (syncKey > 0) syncAllChannels();
+  }, [syncKey]);
+
   const loadPresets = useCallback(async () => {
     setPresets(await getPresets());
+
   }, []);
 
   const updateChannelState = (index: number, state: Partial<ChannelState>) => {
@@ -846,6 +860,12 @@ export default function ControlScreen({ device, devices, onOpenList, onAddDevice
           {connStatus==='online'&&latency!==null&&<Text style={styles.latencyText}>{latency}ms</Text>}
           {connStatus==='offline'&&<Text style={styles.offlineText}>OFFLINE</Text>}
           {currentPin!==''&&<Text style={styles.pinIcon}>🔒</Text>}
+          <TouchableOpacity onPress={onOpenStats} style={styles.headerBtn}>
+            <Text style={styles.headerBtnText}>📊</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={onOpenGroups} style={styles.headerBtn}>
+            <Text style={styles.headerBtnText}>🏠</Text>
+          </TouchableOpacity>
           <TouchableOpacity onPress={onAddDevice} style={styles.headerBtn}>
             <Text style={styles.headerBtnText}>+</Text>
           </TouchableOpacity>

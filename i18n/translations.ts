@@ -156,6 +156,7 @@ export type TranslationKey =
   | 'control.dragRotateMulti' | 'control.dragRotateSingle' | 'control.speedLabel'
   | 'control.deletePresetTitle' | 'control.effectsLabel' | 'control.applyButton'
   | 'control.activeStatusLabel'
+  | 'control.errorMinSleep' | 'control.errorRuleFailed' | 'control.errorMinRule'
   // Efekt isimleri ve açıklamaları
   | 'effect.rainbow.label' | 'effect.rainbow.desc'
   | 'effect.breathe.label' | 'effect.breathe.desc'
@@ -194,6 +195,23 @@ export type TranslationKey =
   | 'legal.title' | 'legal.privacy' | 'legal.terms'
   | 'legal.privacyTitle' | 'legal.termsTitle'
   | 'legal.lastUpdated'
+  // Gruplar
+  | 'group.title' | 'group.empty' | 'group.emptyDesc'
+  | 'group.addButton' | 'group.newGroup' | 'group.editGroup'
+  | 'group.nameLabel' | 'group.namePlaceholder'
+  | 'group.iconLabel' | 'group.devicesLabel'
+  | 'group.noDevices' | 'group.saveButton' | 'group.savingButton'
+  | 'group.deleteTitle' | 'group.deleteDesc'
+  | 'group.onlineCount' | 'group.offlineAll'
+  | 'group.turnOn' | 'group.turnOff'
+  | 'group.sending' | 'group.sentSuccess' | 'group.sentPartial'
+  | 'group.tab' | 'group.devices'
+  // İstatistikler
+  | 'stats.title' | 'stats.noData' | 'stats.noDataDesc'
+  | 'stats.daily' | 'stats.weekly'
+  | 'stats.hoursOn' | 'stats.timesToggled'
+  | 'stats.today' | 'stats.thisWeek'
+  | 'stats.clearTitle' | 'stats.clearDesc' | 'stats.clearButton'
   // ErrorBoundary
   | 'errorBoundary.title' | 'errorBoundary.desc'
   | 'errorBoundary.restartButton' | 'errorBoundary.detailsLabel';
@@ -497,6 +515,9 @@ export const translations: Record<Language, Partial<Record<TranslationKey, strin
     'control.effectsLabel':       'EFEKTLER',
     'control.applyButton':        '[ UYGULA ]',
     'control.activeStatusLabel':  'aktif',
+    'control.errorMinSleep':      'En az 1 dakika gir',
+    'control.errorRuleFailed':    'Kural eklenemedi',
+    'control.errorMinRule':       'En az 1 dakika gir',
     'effect.rainbow.label':       'Gökkuşağı',
     'effect.rainbow.desc':        'Tüm renkler döngüsel geçiş',
     'effect.breathe.label':       'Nefes',
@@ -568,6 +589,42 @@ export const translations: Record<Language, Partial<Record<TranslationKey, strin
     'legal.privacyTitle':'Gizlilik Politikası',
     'legal.termsTitle':  'Kullanım Koşulları',
     'legal.lastUpdated': 'Son güncelleme: Haziran 2026',
+    'group.title':       '// ODALAR & GRUPLAR',
+    'group.empty':       'Henüz grup yok.',
+    'group.emptyDesc':   'Birden fazla cihazı bir arada kontrol etmek için grup oluştur.',
+    'group.addButton':   '+ GRUP EKLE',
+    'group.newGroup':    'Yeni Grup',
+    'group.editGroup':   'Grubu Düzenle',
+    'group.nameLabel':   'GRUP ADI',
+    'group.namePlaceholder': 'örn. Salon',
+    'group.iconLabel':   'İKON',
+    'group.devicesLabel':'CİHAZLAR',
+    'group.noDevices':   'Gruba eklenecek cihaz bulunamadı.',
+    'group.saveButton':  '[ KAYDET ]',
+    'group.savingButton':'KAYDEDİLİYOR...',
+    'group.deleteTitle': 'Grubu Sil',
+    'group.deleteDesc':  'silinsin mi? Cihazlar etkilenmez.',
+    'group.onlineCount': 'çevrimiçi',
+    'group.offlineAll':  'tüm cihazlar çevrimdışı',
+    'group.turnOn':      'Hepsini Aç',
+    'group.turnOff':     'Hepsini Kapat',
+    'group.sending':     'Gönderiliyor...',
+    'group.sentSuccess': 'Tüm cihazlara gönderildi',
+    'group.sentPartial': 'cihaza gönderildi',
+    'group.tab':         'GRUPLAR',
+    'group.devices':     'CİHAZLAR',
+    'stats.title':       '// İSTATİSTİKLER',
+    'stats.noData':      'Henüz veri yok.',
+    'stats.noDataDesc':  'Cihazları açıp kapattıkça istatistikler burada görünür.',
+    'stats.daily':       'GÜNLÜK',
+    'stats.weekly':      'HAFTALIK',
+    'stats.hoursOn':     'saat açık',
+    'stats.timesToggled':'kez değiştirildi',
+    'stats.today':       'Bugün',
+    'stats.thisWeek':    'Bu Hafta',
+    'stats.clearTitle':  'Verileri Sil',
+    'stats.clearDesc':   'Tüm kullanım istatistikleri silinsin mi?',
+    'stats.clearButton': 'Sil',
     'errorBoundary.title':          'Bir şeyler ters gitti',
     'errorBoundary.desc':           'Uygulama beklenmedik bir hatayla karşılaştı. Yeniden başlatmayı dene; sorun devam ederse cihaz listesine dönüp tekrar bağlanmayı dene.',
     'errorBoundary.restartButton':  '[ Yeniden Başlat ]',
@@ -871,6 +928,9 @@ export const translations: Record<Language, Partial<Record<TranslationKey, strin
     'control.effectsLabel':       'EFFECTS',
     'control.applyButton':        '[ APPLY ]',
     'control.activeStatusLabel':  'active',
+    'control.errorMinSleep':      'Enter at least 1 minute',
+    'control.errorRuleFailed':    'Could not add rule',
+    'control.errorMinRule':       'Enter at least 1 minute',
     'effect.rainbow.label':       'Rainbow',
     'effect.rainbow.desc':        'Cycles through all colors',
     'effect.breathe.label':       'Breathe',
@@ -942,6 +1002,42 @@ export const translations: Record<Language, Partial<Record<TranslationKey, strin
     'legal.privacyTitle':'Privacy Policy',
     'legal.termsTitle':  'Terms of Use',
     'legal.lastUpdated': 'Last updated: June 2026',
+    'group.title':       '// ROOMS & GROUPS',
+    'group.empty':       'No groups yet.',
+    'group.emptyDesc':   'Create a group to control multiple devices together.',
+    'group.addButton':   '+ ADD GROUP',
+    'group.newGroup':    'New Group',
+    'group.editGroup':   'Edit Group',
+    'group.nameLabel':   'GROUP NAME',
+    'group.namePlaceholder': 'e.g. Living Room',
+    'group.iconLabel':   'ICON',
+    'group.devicesLabel':'DEVICES',
+    'group.noDevices':   'No devices found to add to a group.',
+    'group.saveButton':  '[ SAVE ]',
+    'group.savingButton':'SAVING...',
+    'group.deleteTitle': 'Delete Group',
+    'group.deleteDesc':  'Delete this group? Devices will not be affected.',
+    'group.onlineCount': 'online',
+    'group.offlineAll':  'all devices offline',
+    'group.turnOn':      'Turn All On',
+    'group.turnOff':     'Turn All Off',
+    'group.sending':     'Sending...',
+    'group.sentSuccess': 'Sent to all devices',
+    'group.sentPartial': 'device(s) reached',
+    'group.tab':         'GROUPS',
+    'group.devices':     'DEVICES',
+    'stats.title':       '// STATISTICS',
+    'stats.noData':      'No data yet.',
+    'stats.noDataDesc':  'Statistics will appear here as you use your devices.',
+    'stats.daily':       'DAILY',
+    'stats.weekly':      'WEEKLY',
+    'stats.hoursOn':     'hours on',
+    'stats.timesToggled':'times toggled',
+    'stats.today':       'Today',
+    'stats.thisWeek':    'This Week',
+    'stats.clearTitle':  'Clear Data',
+    'stats.clearDesc':   'Delete all usage statistics?',
+    'stats.clearButton': 'Delete',
     'errorBoundary.title':          'Something went wrong',
     'errorBoundary.desc':           'The app ran into an unexpected error. Try restarting; if the problem persists, return to the device list and try reconnecting.',
     'errorBoundary.restartButton':  '[ Restart ]',
