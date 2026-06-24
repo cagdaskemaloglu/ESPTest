@@ -1,12 +1,12 @@
-# Gizlilik Politikası — Torva Smart Light
+# Gizlilik Politikası — Ambience Bureau
 
 **Son güncelleme:** Haziran 2026
 
-Torva Smart Light ("Uygulama"), ESP32 tabanlı akıllı LED cihazlarınızı yerel Wi-Fi ağınız üzerinden kontrol etmenizi sağlayan bir mobil uygulamadır. Bu belge, Uygulamanın hangi verileri nasıl işlediğini açıklar.
+Ambience Bureau ("Uygulama"), ESP32 tabanlı akıllı LED cihazlarınızı yerel Wi-Fi ağınız üzerinden kontrol etmenizi sağlayan bir mobil uygulamadır. Bu belge, Uygulamanın hangi verileri nasıl işlediğini açıklar.
 
 ## Temel İlke
 
-Torva Smart Light, herhangi bir uzak sunucuya veri göndermez. Tüm cihaz bilgileri, ayarlar ve tercihler yalnızca telefonunuzun yerel depolama alanında saklanır. Uygulama, ESP32 cihazlarınızla doğrudan ve yalnızca aynı yerel ağ (ev Wi-Fi'ınız) üzerinden iletişim kurar.
+Ambience Bureau, herhangi bir uzak sunucuya veri göndermez. Tüm cihaz bilgileri, ayarlar ve tercihler yalnızca telefonunuzun yerel depolama alanında saklanır. Uygulama, ESP32 cihazlarınızla doğrudan ve yalnızca aynı yerel ağ (ev Wi-Fi'ınız) üzerinden iletişim kurar.
 
 ## Topladığımız ve İşlediğimiz Veriler
 

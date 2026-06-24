@@ -1,12 +1,12 @@
-# Privacy Policy — Torva Smart Light
+# Privacy Policy — Ambience Bureau
 
 **Last updated:** June 2026
 
-Torva Smart Light ("App") is a mobile application that lets you control your ESP32-based smart LED devices over your local Wi-Fi network. This document explains what data the App processes and how.
+Ambience Bureau ("App") is a mobile application that lets you control your ESP32-based smart LED devices over your local Wi-Fi network. This document explains what data the App processes and how.
 
 ## Core Principle
 
-Torva Smart Light does not send any data to remote servers. All device information, settings, and preferences are stored exclusively on your phone's local storage. The App communicates with your ESP32 devices directly and only over your local network (your home Wi-Fi).
+Ambience Bureau does not send any data to remote servers. All device information, settings, and preferences are stored exclusively on your phone's local storage. The App communicates with your ESP32 devices directly and only over your local network (your home Wi-Fi).
 
 ## Data We Collect and Process
 

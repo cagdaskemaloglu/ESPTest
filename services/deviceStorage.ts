@@ -13,8 +13,8 @@ import {
   PartMaterial,
 } from '../types/Device';
 
-const STORAGE_KEY = 'torva_devices';
-const LAST_KEY    = 'torva_last_device';
+const STORAGE_KEY = 'ambience_devices';
+const LAST_KEY    = 'ambience_last_device';
 
 function normalize(d: any): Device {
   const type: DeviceType = d.type ?? 'unknown';

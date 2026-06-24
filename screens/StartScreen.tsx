@@ -1,23 +1,12 @@
 /**
  * screens/StartScreen.tsx
- * Başlangıç ekranı.
  *
- * Değişiklik:
- *   "Cihaz Ara" butonu sadece WiFi yapılandırması tamamlandıktan sonra aktif.
- *   Yani önce "Kurulum Başlat" ile ESP32'ye WiFi bilgileri girilmeli.
- *   Yapılandırma tamamlanmamışsa "Cihaz Ara" butonu devre dışı + açıklama gösterilir.
- *
- *   Yapılandırma kontrolü: AsyncStorage'da 'torva_setup_done' anahtarı var mı?
- *   SetupScreen tamamlanınca bu anahtar kaydedilir.
- *
- * ScanScreen geçişinde:
- *   Kullanıcıya "ESP32 ağından kendi WiFi ağına geç" talimatı gösterilir.
+ * "Cihaz Ara" butonu artık her zaman aktif.
+ * Kilit kaldırıldı — kullanıcı ESP32'yi daha önce kurmuşsa
+ * doğrudan tarama yapabilir. Bilgi notu korundur.
  */
 
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useEffect, useState } from 'react';
 import {
-  AppState,
   SafeAreaView,
   StyleSheet,
   Text,
@@ -27,7 +16,7 @@ import {
 import { useLanguage } from '../i18n/LanguageContext';
 import { Colors, Fonts, Radius, Spacing } from '../theme/colors';
 
-export const SETUP_DONE_KEY = 'torva_setup_done';
+export const SETUP_DONE_KEY = 'ambience_setup_done';
 
 type Props = {
   onSetup: () => void;
@@ -37,26 +26,6 @@ type Props = {
 
 export default function StartScreen({ onSetup, onScan, onBack }: Props) {
   const { t } = useLanguage();
-  const [setupDone, setSetupDone] = useState(false);
-  const [loading, setLoading]     = useState(true);
-
-  const checkSetupDone = async () => {
-    const val = await AsyncStorage.getItem(SETUP_DONE_KEY);
-    setSetupDone(val === 'true');
-    setLoading(false);
-  };
-
-  useEffect(() => {
-    // İlk yüklemede oku
-    checkSetupDone();
-
-    // Uygulama ön plana her geldiğinde yeniden kontrol et
-    // (DeviceListScreen'den döndükten sonra güncel değeri yakalar)
-    const sub = AppState.addEventListener('change', (state) => {
-      if (state === 'active') checkSetupDone();
-    });
-    return () => sub.remove();
-  }, []);
 
   return (
     <SafeAreaView style={styles.root}>
@@ -77,7 +46,7 @@ export default function StartScreen({ onSetup, onScan, onBack }: Props) {
         ) : (
           <View style={styles.backBtn} />
         )}
-        <Text style={styles.headerBrand}>TORVA · LAB</Text>
+        <Text style={styles.headerBrand}>AMBIENCE · BUREAU</Text>
         <Text style={styles.headerMeta}>v2.0</Text>
       </View>
       <View style={styles.headerDivider} />
@@ -109,38 +78,23 @@ export default function StartScreen({ onSetup, onScan, onBack }: Props) {
             </Text>
           </TouchableOpacity>
 
-          {/* ── Cihaz Ara ── */}
+          {/* ── Cihaz Ara ── her zaman aktif */}
           <TouchableOpacity
-            onPress={setupDone ? onScan : undefined}
-            activeOpacity={setupDone ? 0.8 : 1}
-            style={[styles.secondaryBtn, !setupDone && styles.secondaryBtnDisabled]}
+            onPress={onScan}
+            activeOpacity={0.8}
+            style={styles.secondaryBtn}
           >
             <View style={styles.secondaryBtnTop}>
               <View>
                 <Text style={styles.secondaryBtnLabel}>{t('start.secondaryLabel')}</Text>
-                <Text style={[
-                  styles.secondaryBtnText,
-                  !setupDone && { color: Colors.text3 },
-                ]}>
+                <Text style={styles.secondaryBtnText}>
                   {t('start.secondaryButton')}
                 </Text>
               </View>
-              {!setupDone && (
-                <View style={styles.lockBadge}>
-                  <Text style={styles.lockBadgeText}>🔒</Text>
-                </View>
-              )}
             </View>
-            {!setupDone ? (
-              <Text style={styles.secondaryBtnDisabledDesc}>
-                {t('start.secondaryDisabledDesc')}{' '}
-                <Text style={{ color: Colors.cyan }}>{t('start.secondaryDisabledHighlight')}</Text>
-              </Text>
-            ) : (
-              <Text style={styles.secondaryBtnDesc}>
-                {t('start.secondaryDesc')}
-              </Text>
-            )}
+            <Text style={styles.secondaryBtnDesc}>
+              {t('start.secondaryDesc')}
+            </Text>
           </TouchableOpacity>
 
         </View>
@@ -208,7 +162,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 
-  // Başlık
   titleBlock: { gap: Spacing.sm },
   titleEyebrow: { fontFamily: Fonts.mono, fontSize: 10, letterSpacing: 4, color: Colors.cyan },
   titleMain: {
@@ -221,7 +174,6 @@ const styles = StyleSheet.create({
   },
   titleDesc: { fontFamily: Fonts.sans, fontSize: 14, color: Colors.text2, lineHeight: 22, marginTop: Spacing.xs },
 
-  // Butonlar
   buttons: { gap: Spacing.md },
 
   primaryBtn: {
@@ -234,8 +186,8 @@ const styles = StyleSheet.create({
     gap: Spacing.xs,
   },
   primaryBtnLabel: { fontFamily: Fonts.mono, fontSize: 8, letterSpacing: 3, color: Colors.cyan2 },
-  primaryBtnText: { fontFamily: Fonts.mono, fontSize: 18, letterSpacing: 2, color: Colors.cyan },
-  primaryBtnDesc: { fontFamily: Fonts.sans, fontSize: 12, color: Colors.text3, lineHeight: 18, marginTop: 2 },
+  primaryBtnText:  { fontFamily: Fonts.mono, fontSize: 18, letterSpacing: 2, color: Colors.cyan },
+  primaryBtnDesc:  { fontFamily: Fonts.sans, fontSize: 12, color: Colors.text3, lineHeight: 18, marginTop: 2 },
 
   secondaryBtn: {
     borderWidth: 1,
@@ -246,30 +198,15 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.lg,
     gap: Spacing.xs,
   },
-  secondaryBtnDisabled: {
-    opacity: 0.6,
-    borderColor: Colors.border3,
-  },
   secondaryBtnTop: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
   },
   secondaryBtnLabel: { fontFamily: Fonts.mono, fontSize: 8, letterSpacing: 3, color: Colors.text3 },
-  secondaryBtnText: { fontFamily: Fonts.mono, fontSize: 18, letterSpacing: 2, color: Colors.text2 },
-  secondaryBtnDesc: { fontFamily: Fonts.sans, fontSize: 12, color: Colors.text3, lineHeight: 18, marginTop: 2 },
-  secondaryBtnDisabledDesc: { fontFamily: Fonts.sans, fontSize: 12, color: Colors.text3, lineHeight: 18, marginTop: 2 },
-  lockBadge: {
-    paddingHorizontal: Spacing.sm,
-    paddingVertical: 2,
-    borderRadius: Radius.sm,
-    backgroundColor: Colors.bg4,
-    borderWidth: 1,
-    borderColor: Colors.border2,
-  },
-  lockBadgeText: { fontSize: 14 },
+  secondaryBtnText:  { fontFamily: Fonts.mono, fontSize: 18, letterSpacing: 2, color: Colors.text2 },
+  secondaryBtnDesc:  { fontFamily: Fonts.sans, fontSize: 12, color: Colors.text3, lineHeight: 18, marginTop: 2 },
 
-  // Bilgi notu
   infoBox: {
     borderWidth: 1,
     borderColor: Colors.border,
@@ -279,10 +216,9 @@ const styles = StyleSheet.create({
     gap: Spacing.md,
   },
   infoTitle: { fontFamily: Fonts.mono, fontSize: 9, letterSpacing: 3, color: Colors.text3 },
-  infoStep: { flexDirection: 'row', alignItems: 'flex-start', gap: Spacing.md },
-  infoNum: { fontFamily: Fonts.mono, fontSize: 10, letterSpacing: 2, color: Colors.cyan, minWidth: 20, marginTop: 2 },
-  infoText: { fontFamily: Fonts.sans, fontSize: 13, color: Colors.text2, flex: 1, lineHeight: 20 },
-  infoHighlight: { fontFamily: Fonts.mono, color: Colors.cyan, fontSize: 12 },
+  infoStep:  { flexDirection: 'row', alignItems: 'flex-start', gap: Spacing.md },
+  infoNum:   { fontFamily: Fonts.mono, fontSize: 10, letterSpacing: 2, color: Colors.cyan, minWidth: 20, marginTop: 2 },
+  infoText:  { fontFamily: Fonts.sans, fontSize: 13, color: Colors.text2, flex: 1, lineHeight: 20 },
 
   footer: {
     flexDirection: 'row',
@@ -296,5 +232,5 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.xl,
   },
   footerText: { fontFamily: Fonts.mono, fontSize: 9, letterSpacing: 2.5, color: Colors.text3 },
-  footerSep: { width: 3, height: 3, borderRadius: 2, backgroundColor: Colors.border2 },
+  footerSep:  { width: 3, height: 3, borderRadius: 2, backgroundColor: Colors.border2 },
 });

@@ -1,4 +1,4 @@
-# Kullanım Koşulları — Torva Smart Light
+# Kullanım Koşulları — Ambience Bureau
 
 **Son güncelleme:** Haziran 2026
 
@@ -6,7 +6,7 @@ Bu uygulamayı kullanarak aşağıdaki koşulları kabul etmiş sayılırsınız
 
 ## Uygulamanın Amacı
 
-Torva Smart Light, ESP32 tabanlı LED cihazlarını yerel Wi-Fi ağı üzerinden kontrol etmek için tasarlanmıştır. Uygulama yalnızca bu amaçla kullanılabilir.
+Ambience Bureau, ESP32 tabanlı LED cihazlarını yerel Wi-Fi ağı üzerinden kontrol etmek için tasarlanmıştır. Uygulama yalnızca bu amaçla kullanılabilir.
 
 ## Kullanıcının Sorumlulukları
 

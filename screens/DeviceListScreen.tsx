@@ -94,7 +94,7 @@ export default function DeviceListScreen({
           text: t('deviceList.removeButton'), style: 'destructive',
           onPress: async () => {
             await removeDevice(device.id);
-            await AsyncStorage.removeItem('torva_setup_done');
+            await AsyncStorage.removeItem('ambience_setup_done');
             const remaining = await getDevices();
             if (remaining.length === 0) onStart();
             else { await loadDevices(); if (device.id === activeDeviceId) onBack(); }
@@ -132,7 +132,7 @@ export default function DeviceListScreen({
       const res = await fetch(`http://${device.ip}/factory-reset${pin}`);
       if (res.ok) {
         await removeDevice(device.id);
-        await AsyncStorage.removeItem('torva_setup_done');
+        await AsyncStorage.removeItem('ambience_setup_done');
         // ESP32 otomasyon kuralları silindi — telefondaki bildirimleri de iptal et
         await cancelAllNotifications();
         const remaining = await getDevices();
@@ -152,7 +152,7 @@ export default function DeviceListScreen({
             text: t('deviceList.removeOnlyButton'), style: 'destructive',
             onPress: async () => {
               await removeDevice(device.id);
-              await AsyncStorage.removeItem('torva_setup_done');
+              await AsyncStorage.removeItem('ambience_setup_done');
               // ESP32'ye ulaşılamadı ama telefon bildirimlerini temizle
               await cancelAllNotifications();
               const remaining = await getDevices();
@@ -417,6 +417,21 @@ export default function DeviceListScreen({
         </Text>
       </View>
 
+      {/* Liste */}
+      <FlatList
+        data={devices}
+        keyExtractor={(item) => item.id}
+        renderItem={renderItem}
+        contentContainerStyle={styles.listContent}
+        ItemSeparatorComponent={() => <View style={styles.separator} />}
+        ListEmptyComponent={
+          <View style={styles.emptyBox}>
+            <Text style={styles.emptyText}>{t('deviceList.emptyTitle')}</Text>
+            <Text style={styles.emptySubText}>{t('deviceList.emptyDesc')}</Text>
+          </View>
+        }
+      />
+
       {/* Dil seçimi */}
       <TouchableOpacity
         onPress={() => setShowLanguagePicker(true)}
@@ -431,7 +446,22 @@ export default function DeviceListScreen({
         </View>
       </TouchableOpacity>
 
-      {/* Dil seçim modalı */}
+      {/* Yasal / Legal butonu */}
+      <TouchableOpacity
+        onPress={onLegal}
+        style={styles.langRow}
+        activeOpacity={0.75}
+      >
+        <Text style={styles.langLabel}>{t('legal.title').toUpperCase()}</Text>
+        <View style={styles.langValue}>
+          <Text style={styles.langValueText}>
+            {t('legal.privacy')} · {t('legal.terms')}
+          </Text>
+          <Text style={styles.chevronRight}>›</Text>
+        </View>
+      </TouchableOpacity>
+
+      {/* Dil seçim modalı — her zaman render edilmeli */}
       <Modal
         visible={showLanguagePicker}
         transparent
@@ -465,36 +495,6 @@ export default function DeviceListScreen({
           </View>
         </TouchableOpacity>
       </Modal>
-
-      {/* Yasal / Legal butonu */}
-      <TouchableOpacity
-        onPress={onLegal}
-        style={styles.langRow}
-        activeOpacity={0.75}
-      >
-        <Text style={styles.langLabel}>{t('legal.title').toUpperCase()}</Text>
-        <View style={styles.langValue}>
-          <Text style={styles.langValueText}>
-            {t('legal.privacy')} · {t('legal.terms')}
-          </Text>
-          <Text style={styles.chevronRight}>›</Text>
-        </View>
-      </TouchableOpacity>
-
-      {/* Liste */}
-      <FlatList
-        data={devices}
-        keyExtractor={(item) => item.id}
-        renderItem={renderItem}
-        contentContainerStyle={styles.listContent}
-        ItemSeparatorComponent={() => <View style={styles.separator} />}
-        ListEmptyComponent={
-          <View style={styles.emptyBox}>
-            <Text style={styles.emptyText}>{t('deviceList.emptyTitle')}</Text>
-            <Text style={styles.emptySubText}>{t('deviceList.emptyDesc')}</Text>
-          </View>
-        }
-      />
 
       {/* Fiziksel reset notu */}
       <View style={styles.infoBox}>

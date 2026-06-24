@@ -101,7 +101,7 @@ export const EFFECT_META: Record<EffectType, { label: string; desc: string; hasC
   bpm:          { label: 'BPM',          desc: 'Ritme senkron nabız atışı',           hasColor: false },
 };
 
-const STORAGE_KEY = 'torva_presets';
+const STORAGE_KEY = 'ambience_presets';
 
 // ── Varsayılan presetler ──────────────────────────────────────────────────────
 export const DEFAULT_PRESETS: Preset[] = [

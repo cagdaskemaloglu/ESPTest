@@ -167,7 +167,7 @@ export default function SetupScreen({ onDone, onBack }: Props) {
       setStatusMsg(t('setup.statusSaved'));
 
       // Kurulum tamamlandı — StartScreen'de "Cihaz Ara" aktif olsun
-      await AsyncStorage.setItem('torva_setup_done', 'true');
+      await AsyncStorage.setItem('ambience_setup_done', 'true');
 
       setTimeout(() => {
         setLoading(false);
@@ -205,7 +205,7 @@ export default function SetupScreen({ onDone, onBack }: Props) {
           <TouchableOpacity onPress={onBack} style={styles.headerBackBtn}>
             <Text style={styles.headerBackText}>← {t('common.back').toUpperCase()}</Text>
           </TouchableOpacity>
-          <Text style={styles.headerBrand}>TORVA · LAB</Text>
+          <Text style={styles.headerBrand}>AMBİENCE · BUREAU</Text>
           <View style={styles.headerRight}>
             <View style={[styles.statusDot, { backgroundColor: dotColor }]} />
             <Text style={styles.headerMeta}>SETUP</Text>

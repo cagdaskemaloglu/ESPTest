@@ -209,7 +209,7 @@ export default function ScanScreen({ onDeviceAdded, onDeviceSelected, onBack, in
           <TouchableOpacity onPress={onBack} style={styles.backBtn}>
             <Text style={styles.backText}>← {t('common.back').toUpperCase()}</Text>
           </TouchableOpacity>
-          <Text style={styles.headerBrand}>TORVA · LAB</Text>
+          <Text style={styles.headerBrand}>AMBIENCE · BUREAU</Text>
           <View style={styles.headerRight}>
             <View style={[styles.statusDot, { backgroundColor: scanning ? Colors.cyan : Colors.text3 }]} />
             <Text style={styles.headerMeta}>v2.0</Text>

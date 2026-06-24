@@ -23,7 +23,7 @@ import {
   translations,
 } from './translations';
 
-const STORAGE_KEY = 'torva_language';
+const STORAGE_KEY = 'ambience_language';
 
 type LanguageContextValue = {
   language:    Language;

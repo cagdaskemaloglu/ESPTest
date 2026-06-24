@@ -1,4 +1,4 @@
-# Terms of Use — Torva Smart Light
+# Terms of Use — Ambience Bureau
 
 **Last updated:** June 2026
 
@@ -6,7 +6,7 @@ By using this App, you agree to the following terms.
 
 ## Purpose of the App
 
-Torva Smart Light is designed to control ESP32-based LED devices over a local Wi-Fi network. The App may only be used for this purpose.
+Ambience Bureau is designed to control ESP32-based LED devices over a local Wi-Fi network. The App may only be used for this purpose.
 
 ## User Responsibilities
 

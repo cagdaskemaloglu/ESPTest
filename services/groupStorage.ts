@@ -8,7 +8,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Group } from '../types/Group';
 
-const STORAGE_KEY = 'torva_groups';
+const STORAGE_KEY = 'ambience_groups';
 
 function generateId(): string {
   return `g_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;

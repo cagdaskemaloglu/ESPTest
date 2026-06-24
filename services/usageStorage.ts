@@ -12,7 +12,7 @@
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const PREFIX      = 'torva_usage_';
+const PREFIX      = 'ambience_usage_';
 const MAX_AGE_MS  = 30 * 24 * 60 * 60 * 1000; // 30 gün
 const MAX_EVENTS  = 500;                        // cihaz başına max event
 

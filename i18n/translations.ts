@@ -248,7 +248,7 @@ export const translations: Record<Language, Partial<Record<TranslationKey, strin
     'onboarding.welcome.eyebrow': '// HOŞ GELDİN',
     'onboarding.welcome.title':   'Akıllı Işık\nKontrolü',
     'onboarding.welcome.desc':
-      'Torva Smart Light ile ESP32 tabanlı LED şeritlerini ve ' +
+      'Ambience Bureau ile ESP32 tabanlı LED şeritlerini ve ' +
       'ampullerini telefonundan yönet. Renk, parlaklık, zamanlayıcı ' +
       've efektler tek uygulamada.',
 
@@ -662,7 +662,7 @@ export const translations: Record<Language, Partial<Record<TranslationKey, strin
     'onboarding.welcome.title':   'Smart Light\nControl',
     'onboarding.welcome.desc':
       'Control your ESP32-based LED strips and bulbs from your phone ' +
-      'with Torva Smart Light. Color, brightness, scheduling, ' +
+      'with Ambience Bureau. Color, brightness, scheduling, ' +
       'and effects all in one app.',
 
     'onboarding.hardware.eyebrow':        '// HARDWARE',

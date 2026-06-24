@@ -147,7 +147,7 @@ export default function OnboardingScreen({ onDone }: Props) {
         ) : (
           <View style={styles.skipBtn} />
         )}
-        <Text style={styles.topBrand}>TORVA · LAB</Text>
+        <Text style={styles.topBrand}>AMBIENCE · BUREAU</Text>
         <View style={styles.skipBtn} />
       </View>
 
