@@ -1,4 +1,4 @@
-  /**
+/**
    * services/stlCache.ts
    * Hybrid STL geometry cache:
    *
@@ -17,7 +17,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import * as THREE from 'three';
 
   // ── Remote URL ────────────────────────────────────────────────────────────────
-  const REMOTE_BASE_URL = 'https://torva-atelier.vercel.app/parts/stl';
+  const REMOTE_BASE_URL = 'https://www.ambiencebureau.com/parts/stl';
 
   // ── Disk cache klasörü ────────────────────────────────────────────────────────
   const CACHE_DIR = `${FileSystem.documentDirectory ?? ''}models/`;
