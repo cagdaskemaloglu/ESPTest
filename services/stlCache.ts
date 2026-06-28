@@ -4,7 +4,7 @@
    *
    * 1. Bundle içi  → assets/models/{key}.stl (hızlı, offline)
    * 2. Disk cache  → FileSystem.documentDirectory/models/{key}.stl
-   * 3. Remote      → https://torva-atelier.vercel.app/parts/stl/{key}.stl
+   * 3. Remote      → https://www.ambiencebureau.com/parts/stl
    *
    * Akış:
    *   Bundle'da var mı? → Evet: bundle'dan yükle

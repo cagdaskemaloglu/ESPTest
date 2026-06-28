@@ -1,94 +1,143 @@
-# Torva Smart Light — Project Overview
-
-## Vizyon
-Torva, müşteriye özel 3D baskı parçalardan oluşan, ESP32 tabanlı akıllı lambader sistemidir.
-Müşteri web sitesinden lambaderini customize eder, sipariş üretilir ve kargoya verilir.
-Kullanıcı ürünü aldığında Torva mobil uygulaması ile LED kontrolü, otomasyon, sahne yönetimi ve 3D model görüntüleme yapabilir.
+# PROJECT_OVERVIEW.md — Ambience Bureau
 
 ---
 
-## Ürün Akışı
+## Ürün Nedir?
 
-```
-1. Müşteri → torva-atelier.vercel.app → lambader tasarlar (parça + renk seç)
-2. Sipariş üreticiye (Çağdaş) ulaşır
-3. Parçalar 3D yazıcıda basılır, montaj yapılır
-4. ESP32'ye o ürüne ait parts keyleri ve renk bilgisi flaşlanır
-5. Ürün kargoya verilir
-6. Kullanıcı Torva uygulamasını indirir
-7. ESP32-Setup WiFi ağına bağlanır → kurulum yapar → kendi WiFi'ına bağlar
-8. Uygulama cihazı tarar, ekler ve kontrole başlar
-9. Uygulama ESP32'den parts/renk bilgisini okur → 3D model render eder
-```
+Ambience Bureau, müşteriye özel 3D baskı parçalardan oluşan ESP32 tabanlı akıllı lambader sistemi.
+Her cihaz benzersiz bir 3D modele sahiptir; uygulama bu modeli gerçek zamanlı gösterir.
+
+Website: ambiencebureau.com
 
 ---
 
-## Platformlar
-
-| Platform | Teknoloji | Repo |
-|---|---|---|
-| Mobil Uygulama | React Native (Expo) | torva-atelier (bu repo) |
-| Web Sitesi (tasarım) | Next.js | torva-atelier (aynı repo) |
-| Firmware | Arduino C++ (ESP32) | torva-atelier (bu repo) |
-| Firmware OTA | GitHub Releases | torva-firmware (public) |
-| STL Hosting | Vercel | torva-atelier.vercel.app/parts/stl/ |
-
----
-
-## Temel Özellikler
+## Tech Stack
 
 ### Mobil Uygulama
-- ESP32 WiFi kurulumu (AP mode)
-- Yerel ağ tarama ile cihaz ekleme
-- PIN koruması (opsiyonel, 4-6 hane)
-- LED kontrol: aç/kapat, parlaklık, renk
-- Efektler: rainbow, breathe, wave, fire, meteor, twinkle, strobe, comet, theater, pulse
-- Sahneler (presets): statik renk + efekt presetleri
-- Otomasyon: günlük zamanlayıcı + geri sayım
-- Bildirimler: otomasyon kurallarıyla senkronize
-- OTA firmware güncelleme
-- 3D model görüntüleme (STL, Three.js/expo-gl)
-- Çoklu cihaz yönetimi + slide animasyonu ile geçiş
-- Onboarding akışı
-- Splash animasyonu
+| Teknoloji | Versiyon | Kullanım |
+|-----------|----------|---------|
+| React Native | 0.76.x | Ana framework |
+| Expo SDK | 54 | Build + native moduller |
+| TypeScript | 5.x | Tip guvenligi |
+| expo-gl + Three.js | r128 | 3D STL viewer |
+| expo-localization | ~17.0.8 | Telefon dili algilama |
+| expo-notifications | ~0.29.x | Yerel bildirimler |
+| AsyncStorage | ~2.1.x | Yerel depolama |
+| @react-native-community/slider | ~4.5.x | Parlaklik slider |
 
-### ESP32 Firmware
-- WiFi AP kurulum modu
-- PIN koruması + brute force engeli (5 deneme → 30sn kilit)
-- 10 LED efekti
-- Automation (günlük + countdown, max 10 kural)
-- NTP senkronizasyonu
-- OTA HTTP güncelleme (GitHub/Vercel'den)
-- Parts + renk bilgisi Preferences'ta saklı (OTA'dan korumalı)
-- Fiziksel reset butonu (GPIO 0, 3sn basılı)
-- Fabrika sıfırlama
+### Firmware
+| Teknoloji | Kullanim |
+|-----------|---------|
+| Arduino C++ (ESP32) | Ana firmware |
+| FastLED | WS2812B LED kontrolu |
+| WebServer | HTTP endpoint'leri |
+| ArduinoJson | JSON parse |
+| HTTPClient + HTTPUpdate | OTA guncelleme |
+| Preferences | Kalici depolama (parts, PIN) |
 
-### Web Sitesi
-- Next.js, Three.js tabanlı 3D STL viewer
-- Parça seçimi (taban/gövde/başlık), malzeme/renk seçimi
-- Fiyatlandırma
-- Sipariş formu (e-posta entegrasyonu)
-- IoT toggle (akıllı lambader seçeneği)
-- Türkçe/İngilizce dil desteği
+### Web (Next.js)
+- 3D STL viewer
+- Parca secimi + siparis formu
+- Firmware + STL dosya hosting (ambiencebureau.com)
 
 ---
 
-## Tema / Tasarım Dili
+## Depo Yapısı
 
-- **Arka plan:** `#080b10` (koyu lacivert-siyah)
-- **Vurgu:** `#00d4ff` (cyan)
-- **Metin:** `#c8d8e8`
-- **Border:** `#1e2d3d`
-- **Font:** SpaceMono (monospace), SpaceGrotesk (sans)
-- **Stil:** Sci-fi / atölye / endüstriyel, scanline doku, glow efektleri
-- Hem web hem mobil aynı temayı kullanır
+```
+ESPTest/  (GitHub repo adi degismedi)
++-- App.tsx                    → Ana router
++-- app.json                   → Expo konfigurasyonu (Ambience Bureau)
++-- eas.json                   → EAS Build konfigurasyonu
++-- package.json               → ambience-bureau
+|
++-- i18n/
+|   +-- translations.ts        → TR + EN sozluk, TranslationKey tipi
+|   +-- LanguageContext.tsx    → Provider + useLanguage hook
+|
++-- screens/
+|   +-- ControlScreen.tsx      → Ana kontrol (ChannelControl icerir)
+|   +-- DeviceListScreen.tsx   → Cihaz listesi + OTA + dil/yasal
+|   +-- SetupScreen.tsx        → WiFi kurulum
+|   +-- ScanScreen.tsx         → Ag taramasi
+|   +-- OnboardingScreen.tsx   → Ilk acilis rehberi
+|   +-- StartScreen.tsx        → Kurulum/tarama secim (kilit yok)
+|   +-- GroupScreen.tsx        → Grup/oda yonetimi
+|   +-- StatsScreen.tsx        → Kullanim istatistikleri
+|   +-- LegalScreen.tsx        → Gizlilik + kullanim kosullari
+|
++-- components/
+|   +-- Model3DViewer.tsx      → STL 3D goruntuleyici
+|   +-- ColorPicker.tsx        → RGB renk secici
+|   +-- PinScreen.tsx          → PIN giris modal
+|   +-- SplashAnimation.tsx    → Acilis animasyonu
+|   +-- ErrorBoundary.tsx      → Render hata yakalama
+|
++-- services/
+|   +-- apiService.ts          → ESP32 HTTP client
+|   +-- deviceStorage.ts       → Cihaz CRUD (removeDevice grup temizler)
+|   +-- groupStorage.ts        → Grup CRUD
+|   +-- groupController.ts     → Paralel grup komutlari
+|   +-- usageStorage.ts        → Kullanim istatistik kaydi
+|   +-- presetStorage.ts       → Preset CRUD + getEffectMeta(t)
+|   +-- automationService.ts   → Otomasyon + fade API
+|   +-- networkScanner.ts      → IP tarama
+|   +-- notificationService.ts → Yerel bildirimler
+|   +-- stlCache.ts            → STL hybrid cache (ambiencebureau.com)
+|
++-- hooks/
+|   +-- useConnectionStatus.ts → Periyodik ping + AppState
+|   +-- useDeviceDiscovery.ts  → Ag kesfi wrapper
+|
++-- types/
+|   +-- Device.ts              → Device, Channel, DeviceType
+|   +-- Group.ts               → Group, GroupCommandResult
+|
++-- theme/
+|   +-- colors.ts              → Colors, Fonts, Spacing, Radius
+|
++-- legal/
+|   +-- privacy-policy.tr.md
+|   +-- privacy-policy.en.md
+|   +-- terms-of-use.tr.md
+|   +-- terms-of-use.en.md
+|
++-- arduino/
+|   +-- v1.1.9/
+|   +-- v1.2.0/
+|   +-- v1.2.1/               → Aktif firmware
+|   +-- claude/               → AI bagam dosyalari
+```
 
 ---
 
-## Satış Stratejisi
+## Kullanici Akışı
 
-- Seri üretim değil — her ürün müşteriye özel
-- Farklı gövde/taban/başlık kombinasyonları
-- Her ESP32'ye o ürüne özgü parts keyleri flaşlanır
-- OTA ile tüm sahada olan cihazlar güncellenebilir
-- İleride: mobil uygulama üzerinden de tasarım + sipariş
+```
+Ilk Kullanim:
+  Uygulama ac → Onboarding → StartScreen
+    → [Yeni Kurulum] → SetupScreen → ScanScreen → ControlScreen
+    → [Cihaz Ara] → ScanScreen (her zaman aktif, kilit yok)
+
+Sonraki Acılıslar:
+  Uygulama ac → Splash → ControlScreen (son cihaz)
+
+Grup Kontrolu:
+  ControlScreen sag ust 🏠 → GroupScreen → Grup olustur → Hepsini Ac/Kapat
+
+Istatistikler:
+  ControlScreen sag ust 📊 → StatsScreen → Haftalik/Gunluk
+
+Dil / Yasal:
+  DeviceListScreen → (liste altında kaydır) → Dil / Yasal
+```
+
+---
+
+## Guvenlik Notlari
+
+- Tum veriler yerel — sunucuya hicbir kullanici verisi gonderilmez
+- ESP32 iletisimi HTTP (yerel ag) — HTTPS gerekmez
+- PIN ESP32 Preferences'ında saklanır — guclu PIN onerilir
+- OTA: GitHub raw URL → version.json + .bin
+- STL: ambiencebureau.com/parts/stl/{key}.stl

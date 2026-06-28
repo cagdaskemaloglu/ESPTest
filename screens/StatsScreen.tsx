@@ -144,7 +144,7 @@ export default function StatsScreen({ devices, onBack }: Props) {
             activeOpacity={0.75}
           >
             <Text style={[styles.filterChipText, selectedDevice === 'all' && styles.filterChipTextActive]}>
-              Tümü
+              {t('stats.allDevices')}
             </Text>
           </TouchableOpacity>
           {devices.map((d) => (
@@ -261,8 +261,8 @@ export default function StatsScreen({ devices, onBack }: Props) {
                       { day: 'numeric', month: 'short' }
                     )}
                   </Text>
-                  <Text style={styles.tableValue}>{stat.hoursOn.toFixed(1)} sa</Text>
-                  <Text style={styles.tableValue}>{stat.toggleCount} kez</Text>
+                  <Text style={styles.tableValue}>{stat.hoursOn.toFixed(1)} {t('stats.hoursSuffix')}</Text>
+                  <Text style={styles.tableValue}>{stat.toggleCount} {t('stats.timesSuffix')}</Text>
                 </View>
               ))}
             </View>

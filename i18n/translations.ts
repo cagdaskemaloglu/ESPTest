@@ -212,6 +212,7 @@ export type TranslationKey =
   | 'stats.hoursOn' | 'stats.timesToggled'
   | 'stats.today' | 'stats.thisWeek'
   | 'stats.clearTitle' | 'stats.clearDesc' | 'stats.clearButton'
+  | 'stats.allDevices' | 'stats.hoursSuffix' | 'stats.timesSuffix'
   // ErrorBoundary
   | 'errorBoundary.title' | 'errorBoundary.desc'
   | 'errorBoundary.restartButton' | 'errorBoundary.detailsLabel';
@@ -625,6 +626,9 @@ export const translations: Record<Language, Partial<Record<TranslationKey, strin
     'stats.clearTitle':  'Verileri Sil',
     'stats.clearDesc':   'Tüm kullanım istatistikleri silinsin mi?',
     'stats.clearButton': 'Sil',
+    'stats.allDevices':  'Tümü',
+    'stats.hoursSuffix': 'sa',
+    'stats.timesSuffix': 'kez',
     'errorBoundary.title':          'Bir şeyler ters gitti',
     'errorBoundary.desc':           'Uygulama beklenmedik bir hatayla karşılaştı. Yeniden başlatmayı dene; sorun devam ederse cihaz listesine dönüp tekrar bağlanmayı dene.',
     'errorBoundary.restartButton':  '[ Yeniden Başlat ]',
@@ -1038,6 +1042,9 @@ export const translations: Record<Language, Partial<Record<TranslationKey, strin
     'stats.clearTitle':  'Clear Data',
     'stats.clearDesc':   'Delete all usage statistics?',
     'stats.clearButton': 'Delete',
+    'stats.allDevices':  'All',
+    'stats.hoursSuffix': 'h',
+    'stats.timesSuffix': 'x',
     'errorBoundary.title':          'Something went wrong',
     'errorBoundary.desc':           'The app ran into an unexpected error. Try restarting; if the problem persists, return to the device list and try reconnecting.',
     'errorBoundary.restartButton':  '[ Restart ]',

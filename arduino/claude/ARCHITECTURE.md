@@ -1,242 +1,183 @@
-cat > /mnt/user-data/outputs/docs/ARCHITECTURE.md << 'EOF'
-# Torva Smart Light — Architecture
+# ARCHITECTURE.md — Ambience Bureau
 
-## Klasör Yapısı
+---
+
+## Genel Mimari
 
 ```
-torva-atelier/
-├── App.tsx                          # Root component, router, global state
-├── app.json                         # Expo config (bundle ID, permissions, plugins)
-├── assets/
-│   ├── fonts/
-│   │   ├── SpaceMono-Regular.ttf
-│   │   └── SpaceGrotesk-Light.ttf
-│   ├── models/                      # STL dosyaları (bundle içi, base01-10, body01-10, head01-10)
-│   │   ├── base01.stl ... base10.stl
-│   │   ├── body01.stl ... body10.stl
-│   │   └── head01.stl ... head10.stl
-│   ├── icon.png                     # 1024x1024
-│   ├── splash-icon.png
-│   ├── adaptive-icon.png            # Android
-│   └── notification-icon.png       # Android, beyaz+şeffaf, 96x96
-├── components/
-│   ├── ColorPicker.tsx              # HSB renk seçici
-│   ├── Model3DViewer.tsx            # Three.js STL 3D viewer (expo-gl)
-│   ├── PinScreen.tsx                # PIN giriş modal
-│   └── SplashAnimation.tsx         # Animasyonlu splash (RN Animated)
-├── docs/                            # AI Documentation
-│   ├── PROJECT_OVERVIEW.md
-│   ├── ARCHITECTURE.md
-│   ├── CURRENT_STATUS.md
-│   └── TASKS.md
-├── hooks/
-│   └── useConnectionStatus.ts      # 5sn ping, online/offline/checking, latency
-├── screens/
-│   ├── AutomationScreen.tsx        # (Artık kullanılmıyor — ControlScreen'e taşındı)
-│   ├── ControlScreen.tsx           # Ana kontrol ekranı
-│   ├── DeviceListScreen.tsx        # Kayıtlı cihazlar, OTA, rename, delete
-│   ├── OnboardingScreen.tsx        # 4 slayt, ilk açılış
-│   ├── PresetsScreen.tsx           # (Artık kullanılmıyor — ControlScreen'e taşındı)
-│   ├── ScanScreen.tsx              # Ağ tarama, cihaz ekleme
-│   ├── SetupScreen.tsx             # ESP32 WiFi + PIN kurulum
-│   └── StartScreen.tsx             # Başlangıç ekranı
-├── services/
-│   ├── apiService.ts               # Merkezi ESP32 HTTP istek servisi (PIN otomatik eklenir)
-│   ├── automationService.ts        # ESP32 automation endpoint'leri + bildirim entegrasyonu
-│   ├── deviceStorage.ts            # AsyncStorage CRUD (cihaz listesi)
-│   ├── networkScanner.ts           # Yerel ağ IP tarama
-│   ├── notificationService.ts      # Expo Notifications (scheduled)
-│   ├── presetStorage.ts            # 16 varsayılan preset + CRUD
-│   └── stlCache.ts                 # Hybrid STL geometry cache (bundle + disk + remote)
-├── theme/
-│   └── colors.ts                   # Renkler, fontlar, spacing, radius sabitleri
-├── types/
-│   └── Device.ts                   # Device, Channel, PartMaterial tipleri
-└── ESP32/
-    ├── ESP32_Light.ino             # Tek kanallı WS2812B firmware (ana)
-    └── ESP32_DualStrip.ino        # Çift kanallı WS2812B firmware
++----------------------------------------------------------+
+|                  React Native App                        |
+|                                                          |
+|  App.tsx (router)                                        |
+|    +-- LanguageProvider (i18n context)                   |
+|    |     +-- ErrorBoundary (render hata yakalama)        |
+|    |           +-- AppInner                              |
+|    |                 +-- SplashAnimation                 |
+|    |                 +-- OnboardingScreen                |
+|    |                 +-- StartScreen  (kilit yok)        |
+|    |                 +-- SetupScreen                     |
+|    |                 +-- ScanScreen                      |
+|    |                 +-- DeviceListScreen                |
+|    |                 +-- GroupScreen                     |
+|    |                 +-- StatsScreen                     |
+|    |                 +-- LegalScreen                     |
+|    |                 +-- ControlScreen (her zaman mount) |
+|    |                       +-- ChannelControl x N        |
+|    |                       +-- Model3DViewer             |
+|    |                       +-- PinScreen (modal)         |
+|    +-- AsyncStorage (yerel, sunucuya gitmez)             |
+|                                                          |
++-------------------------+--------------------------------+
+                          | HTTP (yerel ag)
+                          v
++----------------------------------------------------------+
+|                   ESP32 Firmware v1.2.1                  |
+|  WebServer (port 80)                                     |
+|    +-- LED kontrolu (FastLED / WS2812B)                  |
+|    +-- 23 Efekt sistemi                                  |
+|    +-- Fade/Uyku modu                                    |
+|    +-- Otomasyon (NTP senkronlu)                         |
+|    +-- PIN guvenlik + brute force koruması               |
+|    +-- OTA guncelleme (GitHub raw)                       |
+|    +-- Parts sistemi (Preferences kalıcı)                |
++----------------------------------------------------------+
 ```
 
 ---
 
-## Uygulama Akışı (App.tsx)
-
-```
-loading → splash → onboarding → start → setup → scan → control → deviceList
-                                          ↑                         ↓
-                                          └─────────────────────────┘
-```
-
-| Step | Koşul |
-|---|---|
-| loading | appReady = false |
-| splash | splashDone = false |
-| onboarding | Kayıtlı cihaz yok |
-| start | Kurulum yapılmamış |
-| setup | ESP32-Setup AP'ye bağlanıp WiFi kurulumu |
-| scan | Ağ tarama, cihaz ekleme |
-| control | Ana kontrol ekranı |
-| deviceList | Cihaz listesi, OTA, rename, delete |
-
----
-
-## Device Tipi
+## App.tsx Routing
 
 ```typescript
-type Device = {
-  id:            string;
-  name:          string;
-  ip:            string;
-  addedAt:       number;
-  brightness:    number;
-  color:         { r: number; g: number; b: number };
-  type:          'ws2812b' | 'single_led' | 'relay' | 'unknown';
-  capabilities:  DeviceCapability[];
-  leds?:         number;
-  pin:           string;           // Boş = PIN yok
-  channels:      Channel[];        // Her adreslenebilir şerit
-  parts:         string[];         // 3D model parça key listesi (sıralı)
-  partMaterials: Record<string, PartMaterial>;  // Her parça renk/materyal
-};
+type Step =
+  | 'loading' | 'onboarding' | 'start' | 'setup'
+  | 'scan' | 'control' | 'deviceList' | 'legal'
+  | 'groups' | 'stats';
+```
 
-type Channel = {
-  id:           number;
-  name:         string;
-  capabilities: DeviceCapability[];
-  leds?:        number;
-};
+ControlScreen her zaman mount'ta kalır. Diğer ekranlar renderOverlay()
+içinde if/return zinciriyle absolute overlay olarak render edilir.
 
-type PartMaterial = {
-  color:     string;   // hex
-  roughness: number;   // 0.0-1.0
-  metalness: number;   // 0.0-1.0
-};
+goToControl() fonksiyonu: setStep('control') + setSyncKey(k+1)
+Her overlay'den dönüşte LED durumu otomatik güncellenir.
+
+---
+
+## Servis Katmanı
+
+### apiService.ts
+createAPI(ip, pin, onUnauthorized) ile instance oluşturulur.
+PIN otomatik eklenir, 403 → onUnauthorized callback.
+
+### deviceStorage.ts
+AsyncStorage key: ambience_devices
+removeDevice(id) → otomatik olarak removeDeviceFromGroups(id) çağırır.
+
+### groupStorage.ts
+AsyncStorage key: ambience_groups
+removeDeviceFromGroups: üyesiz kalan grup otomatik silinir.
+
+### groupController.ts
+sendGroupCommand(devices, command) → Promise.allSettled ile paralel HTTP.
+Komutlar: on | off | brightness | color.
+
+### usageStorage.ts
+recordToggle(deviceId, isOn) → ControlScreen toggle() çağrısında tetiklenir.
+30 günden eski ve 500+ event otomatik temizlenir.
+getDailyStats(deviceId, days) → DailyStat[] (hoursOn, toggleCount).
+i18n: stats.allDevices, stats.hoursSuffix, stats.timesSuffix anahtarları.
+
+### stlCache.ts
+Hybrid: bundle (assets/models/) → disk cache → ambiencebureau.com remote
+Remote URL: https://www.ambiencebureau.com/parts/stl/{key}.stl
+
+### presetStorage.ts
+getEffectMeta(t) — dile göre efekt metadata üretir.
+getPresetDisplayName(preset, t) — varsayılan presetleri çevirir.
+
+---
+
+## i18n Mimarisi
+
+```
+i18n/
+  translations.ts     → TranslationKey union tipi + TR/EN sozluk
+  LanguageContext.tsx  → LanguageProvider + useLanguage() + LanguageContext (export)
+```
+
+Dil bağımlı statik veri pattern'i:
+```typescript
+function getEffectMeta(t: (key: TranslationKey) => string) { ... }
+function getSlides(t)    { ... }  // OnboardingScreen
+function getTypeMeta(t)  { ... }  // ScanScreen
+```
+
+ErrorBoundary özel durumu (class component):
+```typescript
+static contextType = LanguageContext;
+// declare context KULLANMA — Babel uyumsuz
+const ctx = this.context as { t?: (key: string) => string } | null;
+const t = ctx?.t ?? ((key: string) => key);
 ```
 
 ---
 
-## ESP32 API Endpoint'leri
+## ControlScreen Mimarisi
 
-| Endpoint | PIN | Açıklama |
-|---|---|---|
-| GET /whoami | ✗ | Cihaz bilgisi (type, channels, parts, partColors...) |
-| GET /setup | ✗ | WiFi + PIN kaydet, restart |
-| GET /wifi/scan | ✗ | Çevredeki WiFi ağları |
-| GET /led/on | ✓ | LED aç (?channel=N) |
-| GET /led/off | ✓ | LED kapat (?channel=N) |
-| GET /led/brightness | ✓ | Parlaklık (?value=0-255&channel=N) |
-| GET /led/color | ✓ | Renk (?r=&g=&b=&channel=N) |
-| GET /led/state | ✓ | Durum (?channel=N) |
-| GET /effect | ✓ | Efekt (?type=&speed=&r=&g=&b=&channel=N) |
-| GET /pin/set | ✓ | PIN güncelle (?new_pin=) |
-| GET /factory-reset | ✓ | Fabrika sıfırlama |
-| GET /ota/check | ✓ | Güncelleme kontrolü |
-| GET /ota/update | ✓ | OTA güncelleme başlat |
-| GET /automation/list | ✓ | Kural listesi (?channel=N) |
-| GET /automation/add | ✓ | Kural ekle |
-| GET /automation/delete | ✓ | Kural sil (?id=) |
-| GET /automation/toggle | ✓ | Kural toggle (?id=) |
-| GET /automation/time | ✓ | ESP32 saati |
+İki ayrı component:
+
+1. ChannelControl (satır ~152) — tek LED kanalı kontrolü
+   - Parlaklık, renk, sahneler, otomasyon, uyku modu
+   - useLanguage() kendi içinde çağırır
+   - Her kanal bağımsız state tutar
+
+2. ControlScreen (satır ~685) — ana router component
+   - 3D model kartı + slide navigasyon
+   - Cihaz değişiminde tüm geçici state temizlenir
+   - syncKey değişince syncAllChannels() tetiklenir
+   - Header: cihaz listesi, + (ekle), stats (📊), groups (🏠)
 
 ---
 
-## /whoami Yanıt Formatı
+## useConnectionStatus Hook
 
-```json
-{
-  "device": "esp32-light",
-  "type": "ws2812b",
-  "channels": [
-    {
-      "id": 0,
-      "name": "Şerit",
-      "capabilities": ["on_off", "brightness", "color", "effects"],
-      "leds": 30
-    }
-  ],
-  "parts": ["base01", "body02", "head01"],
-  "partColors": {
-    "base01": "#1a1a1a",
-    "body02": "#c8b89a",
-    "head01": "#2a2a2a"
-  },
-  "partRoughness": { "base01": 0.8, "body02": 0.6, "head01": 0.9 },
-  "partMetalness": { "base01": 0.1, "body02": 0.2, "head01": 0.05 },
-  "capabilities": ["on_off", "brightness", "color", "effects"],
-  "leds": 30,
-  "pin_required": false,
-  "firmware": "1.0.0"
-}
+```typescript
+// AppState entegrasyonlu:
+// - Arka plana gecince ping durdurulur
+// - On plana donunce anında ping + periyod yeniden baslar
+const { status, latency } = useConnectionStatus(device.ip);
+// status: 'checking' | 'online' | 'offline'
 ```
 
 ---
 
-## OTA Sistemi
+## ESP32 Firmware
 
-```
-ESP32 → GET version.json (raw.githubusercontent.com/cagdaskemaloglu/torva-firmware/main/version.json)
-      → Sürüm karşılaştır
-      → Güncelleme varsa .bin indir (torva-atelier.vercel.app/firmware/ESP32_Light.ino.bin)
-      → Flash'a yaz → restart
-```
+```cpp
+setup()
+  +-- loadOrInitParts()     // DEVICE_PARTS_VERSION ile versiyonlama
+  +-- connectToWiFi() / startAP()
+  +-- loadRules()
+  +-- server.on(...)
 
-**version.json:**
-```json
-{
-  "version": "1.1.4",
-  "url": "https://torva-atelier.vercel.app/firmware/ESP32_Light.ino.bin",
-  "notes": "Açıklama"
-}
-```
+loop()
+  +-- server.handleClient()
+  +-- runEffects()          // fadeActive ise atla
+  +-- runFade()             // uyku modu interpolasyonu
+  +-- checkAutomation()     // her 1sn, NTP senkronlu
+  +-- checkResetButton()    // GPIO 0 fiziksel reset
 
----
-
-## STL Cache Sistemi (Hybrid)
-
-```
-getGeometry("base01")
-  1. Memory cache → anında
-  2. Bundle içi   → assets/models/base01.stl
-  3. Disk cache   → FileSystem.documentDirectory/models/base01.stl
-  4. Remote       → torva-atelier.vercel.app/parts/stl/base01.stl → diske kaydet
+// OTACheckResult struct, fade degiskenlerinden ONCE tanimlanmali
 ```
 
-**Bundle içi partlar:** base01-10, body01-10, head01-10 (30 dosya)
-**Yeni partlar:** Vercel'e koy → otomatik indirilir
-
----
-
-## Parts Sistemi
-
+### Fade / Uyku Modu
 ```
-ESP32 Preferences'ta saklanır:
-  parts:      "base01,body02,head01"     (virgülle ayrılmış, sıralı)
-  colors:     {"base01":"#1a1a1a",...}   (JSON string)
-  roughness:  {"base01":0.8,...}
-  metalness:  {"base01":0.1,...}
-  parts_ver:  2                          (versiyon numarası)
-
-DEVICE_PARTS_VERSION artırılınca → Preferences güncellenir
-OTA güncellemesinde → parts_ver aynıysa Preferences korunur
-Fabrika sıfırlamasında → WiFi/PIN/Automation silinir, parts KORUNUR
+/led/fade?duration=N&target=0&pin=X
+  → fadeActive = true
+  → Bitince: ledIsOn = false, currentBrightness = fadeStartBri
+  → Sonraki /led/on gorunur parlaklıkta acar
 ```
 
----
-
-## Bağımlılıklar
-
-```json
-{
-  "expo": "~51.x",
-  "react-native": "0.74.x",
-  "@react-native-async-storage/async-storage": "^1.x",
-  "@react-native-community/slider": "^4.x",
-  "expo-notifications": "~0.28.x",
-  "expo-splash-screen": "~0.27.x",
-  "expo-network": "~6.x",
-  "expo-gl": "~14.x",
-  "expo-asset": "~10.x",
-  "expo-file-system": "~17.x",
-  "three": "^0.x",
-  "expo-three": "^7.x"
-}
+### Parts Versiyon Sistemi
+```cpp
+#define DEVICE_PARTS_VERSION 3  // artırınca Preferences guncellenir
+```

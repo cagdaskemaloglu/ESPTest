@@ -70,6 +70,9 @@ export async function removeDevice(id: string): Promise<void> {
   try {
     const current = await getDevices();
     await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(current.filter((d) => d.id !== id)));
+    // Cihaz silinince ilgili gruplardan da otomatik çıkar
+    const { removeDeviceFromGroups } = await import('./groupStorage');
+    await removeDeviceFromGroups(id);
   } catch (e) { console.error('removeDevice hata:', e); }
 }
 
