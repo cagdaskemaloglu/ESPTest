@@ -37,6 +37,7 @@ export type Device = {
   capabilities: DeviceCapability[];
   leds?:        number;
   pin:          string;
+  serial?:      string;  // ESP32 benzersiz seri no — v1.3.0+
   channels:     Channel[];
   // Part key listesi — sıralı, 3D render için
   parts:        string[];

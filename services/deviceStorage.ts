@@ -12,6 +12,7 @@ import {
   DeviceType,
   PartMaterial,
 } from '../types/Device';
+import { removeDeviceFromGroups } from './groupStorage';
 
 const STORAGE_KEY = 'ambience_devices';
 const LAST_KEY    = 'ambience_last_device';
@@ -66,12 +67,22 @@ export async function addDevice(device: Device): Promise<void> {
   } catch (e) { console.error('addDevice hata:', e); }
 }
 
+// ESP32 yeni IP aldığında (DHCP değişimi) cihazı günceller
+export async function updateDeviceIp(id: string, newIp: string): Promise<void> {
+  try {
+    const current = await getDevices();
+    await AsyncStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify(current.map((d) => d.id === id ? { ...d, ip: newIp } : d))
+    );
+  } catch (e) { console.error('updateDeviceIp hata:', e); }
+}
+
 export async function removeDevice(id: string): Promise<void> {
   try {
     const current = await getDevices();
     await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(current.filter((d) => d.id !== id)));
     // Cihaz silinince ilgili gruplardan da otomatik çıkar
-    const { removeDeviceFromGroups } = await import('./groupStorage');
     await removeDeviceFromGroups(id);
   } catch (e) { console.error('removeDevice hata:', e); }
 }

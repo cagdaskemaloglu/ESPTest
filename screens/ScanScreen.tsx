@@ -184,6 +184,7 @@ export default function ScanScreen({ onDeviceAdded, onDeviceSelected, onBack, in
       channels:     found?.channels     ?? defaultChannels(type, found?.leds),
       parts:        found?.parts        ?? [],
       partMaterials: found?.partMaterials ?? {},
+      serial:        found?.serial,
     };
 
     await addDevice(newDevice);

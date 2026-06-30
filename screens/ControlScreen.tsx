@@ -5,21 +5,21 @@
 import Slider from '@react-native-community/slider';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  Alert,
-  Animated,
-  Dimensions,
-  Easing,
-  KeyboardAvoidingView,
-  LayoutAnimation,
-  Modal,
-  Platform,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  UIManager,
-  View
+    Alert,
+    Animated,
+    Dimensions,
+    Easing,
+    KeyboardAvoidingView,
+    LayoutAnimation,
+    Modal,
+    Platform,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    UIManager,
+    View
 } from 'react-native';
 import ColorPicker from '../components/ColorPicker';
 import Model3DViewer from '../components/Model3DViewer';
@@ -29,25 +29,25 @@ import { useLanguage } from '../i18n/LanguageContext';
 import { TranslationKey } from '../i18n/translations';
 import { createAPI } from '../services/apiService';
 import {
-  AutomationRule,
-  FadeState,
-  addCountdownRule, addDailyRule,
-  cancelFade,
-  deleteRule, getESP32Time,
-  getFadeState,
-  listRules, ruleDescription,
-  startFade,
-  toggleRule,
+    AutomationRule,
+    FadeState,
+    addCountdownRule, addDailyRule,
+    cancelFade,
+    deleteRule, getESP32Time,
+    getFadeState,
+    listRules, ruleDescription,
+    startFade,
+    toggleRule,
 } from '../services/automationService';
-import { saveBrightness, saveColor, saveDeviceMeta, savePin } from '../services/deviceStorage';
+import { saveBrightness, saveColor, saveDeviceMeta, savePin, updateDeviceIp } from '../services/deviceStorage';
 import { requestNotificationPermission } from '../services/notificationService';
 import {
-  DEFAULT_IDS,
-  EffectType,
-  Preset,
-  deletePreset,
-  getEffectMeta, getPresetDisplayName,
-  getPresets
+    DEFAULT_IDS,
+    EffectType,
+    Preset,
+    deletePreset,
+    getEffectMeta, getPresetDisplayName,
+    getPresets
 } from '../services/presetStorage';
 import { Colors, Fonts, Radius, Spacing } from '../theme/colors';
 import { Channel, Device, channelHasCapability } from '../types/Device';
@@ -744,7 +744,18 @@ export default function ControlScreen({ device, devices, onOpenList, onAddDevice
     setPinError(null); setPinScreenMode('enter'); setShowPinScreen(true);
   });
 
-  const { status: connStatus, latency } = useConnectionStatus(device.ip);
+  const handleIpChanged = useCallback(async (newIp: string) => {
+    // ESP32 yeni IP aldı — cihazı güncelle ve yeniden bağlan
+    await updateDeviceIp(device.id, newIp);
+    onDeviceChange({ ...device, ip: newIp });
+  }, [device, onDeviceChange]);
+
+  const { status: connStatus, latency } = useConnectionStatus({
+    ip:           device.ip,
+    deviceSerial: device.serial,
+    deviceParts:  device.parts ?? [],
+    onIpChanged:  handleIpChanged,
+  });
   const prevStatus = useRef<string>('checking');
   const bgAnim = useRef(new Animated.Value(0)).current;
 

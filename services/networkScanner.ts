@@ -28,6 +28,7 @@ export type FoundDevice = {
   channels:      Channel[];
   parts:         string[];
   partMaterials: Record<string, PartMaterial>;
+  serial?:       string;  // v1.3.0+ — benzersiz seri no
 };
 
 function fetchWithTimeout(url: string, timeout = TIMEOUT_MS): Promise<Response> {
@@ -81,6 +82,7 @@ async function checkIP(ip: string): Promise<FoundDevice | null> {
       channels,
       parts,
       partMaterials,
+      serial:       data.serial ?? undefined,
     };
   } catch {}
   return null;
